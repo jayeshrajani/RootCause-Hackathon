@@ -6,11 +6,12 @@ observations, hypotheses, missing evidence and recommendations are always kept s
 says when to get expert help.
 
 > **Hackathon edition (repository `RootCause-Hackathon`)**, submitted to the **Nebius x NVIDIA
-> Global AI Hackathon** (Best Apps and Agents track; also for Best Use of Tavily). The first version of RootCause was built from 14 to 17 October 2026. For this
-> hackathon it gained a second-stage *investigation*: **Tavily** retrieves guidance from approved
-> agricultural publishers, and **NVIDIA Nemotron 3 Ultra and Nemotron 3 Super on Nebius Token
-> Factory** cross-examine the evidence. Timeline and verification guide:
-> [docs/nebius-hackathon-2026.md](docs/nebius-hackathon-2026.md).
+> Global AI Hackathon** (Best Apps and Agents track; also for Best Use of Tavily). The first
+> version of RootCause (photo triage, weather and satellite evidence, scoring, voice and *Treat
+> it*) was built from 14 to 17 October 2026. This edition adds a second-stage *investigation*:
+> **Tavily** retrieves guidance from approved agricultural publishers, and **NVIDIA Nemotron 3
+> Ultra and Nemotron 3 Super on Nebius Token Factory** cross-examine the evidence. Timeline and
+> verification guide: [docs/nebius-hackathon-2026.md](docs/nebius-hackathon-2026.md).
 
 **Evidence first. Models reason. Rules protect. Sources substantiate. Farmers decide.**
 
