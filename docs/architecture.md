@@ -19,7 +19,7 @@ flowchart TD
   A --> S1
   subgraph S2[Second stage: investigation]
     T[Tavily search<br/>approved publishers only]
-    N[NVIDIA Nemotron 3 Super<br/>Nebius Token Factory]
+    N[NVIDIA Nemotron 3 Ultra, Super for follow-ups<br/>Nebius Token Factory]
     G[Guardrails<br/>ids, citations, chemicals, certainty]
     T --> N --> G
   end

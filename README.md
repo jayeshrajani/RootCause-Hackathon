@@ -5,10 +5,12 @@ words, in English, Hindi, Punjabi, Spanish or French. It is **triage, never a di
 observations, hypotheses, missing evidence and recommendations are always kept separate, and it
 says when to get expert help.
 
-> **Hackathon edition (repository `RootCause-Hackathon`).** The first version of RootCause was built from 14 to 17 October 2026. For this hackathon it gained a
-> second-stage *investigation*: **Tavily** retrieves guidance from approved agricultural
-> publishers, and **NVIDIA Nemotron 3 Super on Nebius Token Factory** cross-examines the evidence.
-> Timeline and verification guide: [docs/nebius-hackathon-2026.md](docs/nebius-hackathon-2026.md).
+> **Hackathon edition (repository `RootCause-Hackathon`)**, submitted to the **Nebius x NVIDIA
+> Global AI Hackathon** (Best Apps and Agents track; also for Best Use of Tavily). The first version of RootCause was built from 14 to 17 October 2026. For this
+> hackathon it gained a second-stage *investigation*: **Tavily** retrieves guidance from approved
+> agricultural publishers, and **NVIDIA Nemotron 3 Ultra and Nemotron 3 Super on Nebius Token
+> Factory** cross-examine the evidence. Timeline and verification guide:
+> [docs/nebius-hackathon-2026.md](docs/nebius-hackathon-2026.md).
 
 **Evidence first. Models reason. Rules protect. Sources substantiate. Farmers decide.**
 
@@ -62,11 +64,34 @@ screen, and per-client hourly caps on every model-backed endpoint.
 | Similar labelled photos | DINOv2 + FAISS | Rice, tomato and potato; visual similarity only |
 | Scores, ranking, evidence ledger | RootCause evidence rules | Deterministic and authoritative |
 | Agricultural guidance discovery | Tavily Search (+ Extract) | Approved publishers only; retrieval is not verification |
-| Evidence reconciliation, contradictions, uncertainty, follow-up question, source-grounded next steps | NVIDIA Nemotron 3 Super (`nvidia/nemotron-3-super-120b-a12b`) via Nebius Token Factory | Text only: no photos, no coordinates; cannot change scores, ranking or urgency |
+| Evidence reconciliation, contradictions, uncertainty, follow-up question, source-grounded next steps | NVIDIA Nemotron 3 Ultra (`nvidia/Nemotron-3-Ultra-550b-a55b`) for the review, Nemotron 3 Super (`nvidia/nemotron-3-super-120b-a12b`) for follow-up re-reviews, via Nebius Token Factory | Text only: no photos, no coordinates; cannot change scores, ranking or urgency |
 | Safety enforcement | RootCause guardrails | Backend-issued ids, citation checks, chemical and certainty filters |
 
 If Nemotron is unavailable the triage is returned unchanged with an explicit status; the review
 is never replaced by Gemini, another model or a mock.
+
+## How RootCause uses NVIDIA Nemotron, Nebius Token Factory and Tavily
+
+- **Runtime calls on every real report.** After the first-stage triage, the API calls Tavily and
+  then Nemotron through Token Factory's OpenAI-compatible Chat Completions endpoint (plain
+  `httpx`, no SDK). Each result's *How this result was checked* section shows the provider, the
+  exact model, status, duration and token usage of these calls.
+- **Two Nemotron models, routed by job.** Nemotron 3 Ultra does the heavy reasoning: it
+  cross-examines the scored evidence ledger against the retrieved guidance. Nemotron 3 Super
+  handles the quicker follow-up re-review after the farmer answers. Each model is the other's
+  fallback for any failure except a rejected key, while time remains in the 55 s budget.
+- **Structured, checked output.** Requests use strict JSON-schema output
+  (`response_format: json_schema`) and a low-effort reasoning switch (`chat_template_kwargs`);
+  the reply is validated with Pydantic, repaired once if needed, then passed through
+  deterministic guardrails before anyone sees it.
+- **Where Token Factory helped.** One OpenAI-compatible endpoint and key covers every Nemotron
+  size, so comparing Ultra, Super and Nano for this task was a model-id change (all three
+  returned valid reviews in our live check), and the `/v1/models` catalog lets the smoke test
+  confirm the model ids before relying on them.
+- **Tavily as the evidence finder, not the authority.** Search is restricted to about 30
+  approved research and extension publishers, Extract enriches the best pages, and every result
+  is re-validated (HTTPS, domain, crop and disease relevance, no dose instructions) before
+  Nemotron or the farmer sees it. Results are cached for 6 hours per crop, cause and country.
 
 ## Architecture
 
@@ -175,6 +200,7 @@ Two Cloud Run services built by Cloud Build, with keys in Secret Manager and str
 
 ## Live demo
 
+- Track: Best Apps and Agents (plus Best Use of Tavily)
 - Demo: _URL to be added after deployment_
 - Video (under 3 minutes): _to be added_; script in [docs/hackathon-demo-script.md](docs/hackathon-demo-script.md)
 
@@ -232,7 +258,7 @@ See [docs/roadmap.md](docs/roadmap.md) for the original milestone plan.
 
 ## License and acknowledgements
 
-[MIT](LICENSE). NVIDIA Nemotron 3 Super is used through Nebius Token Factory under the NVIDIA
+[MIT](LICENSE). NVIDIA Nemotron models are used through Nebius Token Factory under the NVIDIA
 Open Model License. Reference photos come from PlantDoc, PlantVillage and a Mendeley rice dataset
 under their CC licences; attribution is in [docs/datasets.md](docs/datasets.md).
 

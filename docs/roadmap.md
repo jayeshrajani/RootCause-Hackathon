@@ -109,8 +109,8 @@ Timeline and verification guide: [nebius-hackathon-2026.md](nebius-hackathon-202
 
 | Work | Status |
 | --- | --- |
-| NVIDIA Nemotron 3 Super review via Nebius Token Factory, strict mode | Built, unit-tested; live check pending keys |
-| Tavily guidance search limited to approved publishers, validated and cached | Built, unit-tested; live check pending keys |
+| NVIDIA Nemotron 3 Ultra review (Super for follow-ups and fallback) via Nebius Token Factory, strict mode | Built, unit-tested, live-verified |
+| Tavily guidance search limited to approved publishers, validated and cached | Built, unit-tested, live-verified |
 | Deterministic guardrails (ids, citations, chemicals, certainty, expert flag) | Built, unit-tested |
 | Review, Sources and provenance UI; follow-up question | Built, component-tested |
 | Per-client rate limit and daily review cap | Built, unit-tested |
@@ -118,7 +118,8 @@ Timeline and verification guide: [nebius-hackathon-2026.md](nebius-hackathon-202
 
 Acceptance criteria
 
-- [ ] A live report calls Nemotron and Tavily and shows both in the provenance section.
+- [x] A live report calls Nemotron and Tavily and shows both in the provenance section (verified
+  through the API on 28 October 2026).
 - [x] Scores, ranking and urgency are identical with and without the review (tested).
 - [x] Invented citations and chemical instructions never reach the farmer (tested).
 - [ ] Public demo URL and a video under 3 minutes.
