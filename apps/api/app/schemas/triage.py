@@ -6,6 +6,12 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from app.schemas.investigation import (
+    AgronomySource,
+    FollowUpAnswer,
+    IntegrationStep,
+    InvestigationReview,
+)
 from app.schemas.satellite import SatelliteAnalysis
 
 
@@ -72,6 +78,7 @@ class SourceKind(StrEnum):
     KNOWLEDGE_BASE = "knowledge_base"
     ANALYSIS_ENGINE = "analysis_engine"
     REFERENCE_PHOTOS = "reference_photos"
+    INVESTIGATION_REVIEW = "investigation_review"
 
 
 class EvidenceAvailability(StrEnum):
@@ -257,11 +264,28 @@ class TriageResponse(BaseModel):
     generated_at: datetime
     data_sources: list[DataSource]
     disclaimer: str
+    investigation_review: InvestigationReview | None = Field(
+        default=None,
+        description="NVIDIA Nemotron review of the evidence ledger; never changes scores.",
+    )
+    agronomy_sources: list[AgronomySource] = Field(
+        default_factory=list,
+        description="Validated pages from approved agricultural domains (Tavily search).",
+    )
+    integration_status: list[IntegrationStep] = Field(
+        default_factory=list, description="What each provider actually did for this report."
+    )
 
 
 class TranslateTriageRequest(BaseModel):
     result: TriageResponse
     target_language: ResponseLanguage
+
+
+class FollowUpRequest(BaseModel):
+    report_id: str = Field(pattern=r"^rpt_[0-9a-f]{16}$")
+    question_id: str = Field(pattern=r"^fq_[0-9a-f]{12}$")
+    answer: FollowUpAnswer
 
 
 class ReferenceAgreement(StrEnum):

@@ -12,6 +12,16 @@ from app.core.config import Settings
 from app.core.errors import AppError
 from app.integrations.cerebras import CerebrasClient
 from app.main import create_app
+from app.schemas.investigation import (
+    FollowUpCategory,
+    FollowUpQuestion,
+    InvestigationReview,
+    ReviewedObservation,
+    ReviewStatus,
+    SafeNextStep,
+    StepPriority,
+    SupportStatus,
+)
 from app.schemas.triage import (
     ActionPriority,
     AnalysisMode,
@@ -249,3 +259,102 @@ def test_translate_endpoint_rejects_unknown_language(client: TestClient) -> None
     response = client.post("/api/v1/triage/translate", json=body)
 
     assert response.status_code == 422
+
+
+def english_review() -> InvestigationReview:
+    return InvestigationReview(
+        status=ReviewStatus.COMPLETED,
+        provider="Nebius Token Factory",
+        model="nvidia/nemotron-test",
+        reasoning_summary="Rings fit early blight.",
+        supporting_observations=[
+            ReviewedObservation(text="Ringed spots.", evidence_ids=["ev_photo_1"])
+        ],
+        follow_up_question=FollowUpQuestion(
+            id="fq_000000000001",
+            text="Do the spots have rings?",
+            category=FollowUpCategory.VISIBLE_PATTERN,
+            discriminates=["early_blight"],
+            why="Rings point to early blight.",
+        ),
+        safe_next_steps=[
+            SafeNextStep(
+                action="Remove spotted leaves.",
+                rationale="Reduces spores.",
+                priority=StepPriority.WITHIN_DAYS,
+                source_ids=["S1"],
+                requires_expert_review=False,
+                support_status=SupportStatus.SOURCE_BACKED,
+            )
+        ],
+    )
+
+
+def hindi_review_text(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "reasoning_summary": "छल्ले अगेती झुलसा से मेल खाते हैं।",
+        "supporting_observations": ["छल्लेदार धब्बे।"],
+        "contradictions": [],
+        "unresolved_questions": [],
+        "follow_up_question": ["क्या धब्बों में छल्ले हैं?", "छल्ले अगेती झुलसा दिखाते हैं।"],
+        "knowledge_findings": [],
+        "safe_next_steps": [{"action": "धब्बेदार पत्तियाँ हटाएँ।", "rationale": "बीजाणु घटते हैं।"}],
+        "limitations": [],
+        "guardrail_notes": [],
+        "what_changed": [],
+        "previous_summary": [],
+    }
+    return base | overrides
+
+
+async def test_review_translation_keeps_ids_sources_and_statuses() -> None:
+    translator, sent = translator_with(completion(hindi_review_text()))
+
+    translated = await translator.translate_review(english_review(), ResponseLanguage.HINDI)
+
+    assert translated.language == "hi"
+    assert translated.reasoning_summary.startswith("छल्ले")
+    assert translated.follow_up_question is not None
+    assert translated.follow_up_question.id == "fq_000000000001"
+    assert translated.follow_up_question.text == "क्या धब्बों में छल्ले हैं?"
+    step = translated.safe_next_steps[0]
+    assert step.source_ids == ["S1"] and step.support_status == "source_backed"
+    assert translated.supporting_observations[0].evidence_ids == ["ev_photo_1"]
+    assert sent[0]["response_format"]["json_schema"]["name"] == "review_translation"
+
+
+async def test_review_translation_that_changes_shape_is_rejected() -> None:
+    reshaped = hindi_review_text(safe_next_steps=[])
+    translator, sent = translator_with(completion(reshaped), completion(reshaped))
+
+    with pytest.raises(AppError):
+        await translator.translate_review(english_review(), ResponseLanguage.HINDI)
+
+    assert len(sent) == 2
+
+
+async def test_full_translation_carries_the_review() -> None:
+    result = hindi_result(
+        investigation_review=english_review().model_copy(update={"language": "hi"})
+    )
+    review_text = {
+        "reasoning_summary": "Rings fit early blight.",
+        "supporting_observations": ["Ringed spots."],
+        "contradictions": [],
+        "unresolved_questions": [],
+        "follow_up_question": ["Do the spots have rings?", "Rings point to early blight."],
+        "knowledge_findings": [],
+        "safe_next_steps": [{"action": "Remove spotted leaves.", "rationale": "Reduces spores."}],
+        "limitations": [],
+        "guardrail_notes": [],
+        "what_changed": [],
+        "previous_summary": [],
+    }
+    translator, sent = translator_with(completion(english_text(investigation_review=[review_text])))
+
+    translated = await translator.translate(result, ResponseLanguage.ENGLISH)
+
+    assert translated.investigation_review is not None
+    assert translated.investigation_review.language == "en"
+    assert translated.investigation_review.safe_next_steps[0].action == "Remove spotted leaves."
+    assert '"investigation_review"' in sent[0]["messages"][1]["content"][0]["text"]

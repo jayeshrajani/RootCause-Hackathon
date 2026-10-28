@@ -7,12 +7,14 @@ is rejected rather than shown.
 
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from typing import TypeVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from app.core.errors import AppError
 from app.integrations.vision import VisionModel, VisionModelError
+from app.schemas.investigation import InvestigationReview, ReviewStatus
 from app.schemas.triage import ResponseLanguage, SourceKind, TriageResponse
 from app.services.triage.ai import LANGUAGE_NAMES, strict_json_schema
 
@@ -51,6 +53,32 @@ class _Action(BaseModel):
     addresses: str
 
 
+class _FindingText(BaseModel):
+    claim: str
+    applicability: str
+
+
+class _StepText(BaseModel):
+    action: str
+    rationale: str
+
+
+class ReviewText(BaseModel):
+    """Farmer-facing review text. Source titles and excerpts stay verbatim (they are quotes)."""
+
+    reasoning_summary: str
+    supporting_observations: list[str]
+    contradictions: list[str]
+    unresolved_questions: list[str]
+    follow_up_question: list[str] = Field(description="[question, why], or empty.")
+    knowledge_findings: list[_FindingText]
+    safe_next_steps: list[_StepText]
+    limitations: list[str]
+    guardrail_notes: list[str]
+    what_changed: list[str]
+    previous_summary: list[str] = Field(description="[summary], or empty.")
+
+
 class TranslatableText(BaseModel):
     summary: str
     urgency_reason: str
@@ -61,12 +89,101 @@ class TranslatableText(BaseModel):
     possible_causes: list[_Cause]
     missing_information: list[_Check]
     recommended_actions: list[_Action]
+    investigation_review: list[ReviewText] = Field(
+        default_factory=list, description="The completed review, or empty."
+    )
 
 
 TRANSLATION_SCHEMA = strict_json_schema(TranslatableText)
+REVIEW_TRANSLATION_SCHEMA = strict_json_schema(ReviewText)
+
+TextModel = TypeVar("TextModel", bound=BaseModel)
+
+
+def review_text(review: InvestigationReview) -> ReviewText:
+    question = review.follow_up_question
+    return ReviewText(
+        reasoning_summary=review.reasoning_summary,
+        supporting_observations=[o.text for o in review.supporting_observations],
+        contradictions=[o.text for o in review.contradictions],
+        unresolved_questions=review.unresolved_questions,
+        follow_up_question=[question.text, question.why] if question else [],
+        knowledge_findings=[
+            _FindingText(claim=f.claim, applicability=f.applicability)
+            for f in review.knowledge_findings
+        ],
+        safe_next_steps=[
+            _StepText(action=s.action, rationale=s.rationale) for s in review.safe_next_steps
+        ],
+        limitations=review.limitations,
+        guardrail_notes=review.guardrail_notes,
+        what_changed=review.what_changed,
+        previous_summary=[review.previous_summary] if review.previous_summary else [],
+    )
+
+
+def _review_shape(text: ReviewText) -> tuple[int, ...]:
+    return (
+        len(text.supporting_observations),
+        len(text.contradictions),
+        len(text.unresolved_questions),
+        len(text.follow_up_question),
+        len(text.knowledge_findings),
+        len(text.safe_next_steps),
+        len(text.limitations),
+        len(text.guardrail_notes),
+        len(text.what_changed),
+        len(text.previous_summary),
+    )
+
+
+def apply_review_text(
+    review: InvestigationReview, text: ReviewText, language: ResponseLanguage
+) -> InvestigationReview:
+    question = review.follow_up_question
+    return review.model_copy(
+        update={
+            "language": language.value,
+            "reasoning_summary": text.reasoning_summary,
+            "supporting_observations": [
+                o.model_copy(update={"text": t})
+                for o, t in zip(
+                    review.supporting_observations, text.supporting_observations, strict=True
+                )
+            ],
+            "contradictions": [
+                o.model_copy(update={"text": t})
+                for o, t in zip(review.contradictions, text.contradictions, strict=True)
+            ],
+            "unresolved_questions": text.unresolved_questions,
+            "follow_up_question": question.model_copy(
+                update={"text": text.follow_up_question[0], "why": text.follow_up_question[1]}
+            )
+            if question
+            else None,
+            "knowledge_findings": [
+                f.model_copy(update={"claim": t.claim, "applicability": t.applicability})
+                for f, t in zip(review.knowledge_findings, text.knowledge_findings, strict=True)
+            ],
+            "safe_next_steps": [
+                s.model_copy(update={"action": t.action, "rationale": t.rationale})
+                for s, t in zip(review.safe_next_steps, text.safe_next_steps, strict=True)
+            ],
+            "limitations": text.limitations,
+            "guardrail_notes": text.guardrail_notes,
+            "what_changed": text.what_changed,
+            "previous_summary": text.previous_summary[0] if text.previous_summary else None,
+        }
+    )
+
+
+def _completed_review(result: TriageResponse) -> InvestigationReview | None:
+    review = result.investigation_review
+    return review if review is not None and review.status == ReviewStatus.COMPLETED else None
 
 
 def _extract(result: TriageResponse) -> TranslatableText:
+    review = _completed_review(result)
     return TranslatableText(
         summary=result.summary,
         urgency_reason=result.urgency_reason,
@@ -95,6 +212,7 @@ def _extract(result: TriageResponse) -> TranslatableText:
             )
             for action in result.recommended_actions
         ],
+        investigation_review=[review_text(review)] if review else [],
     )
 
 
@@ -118,6 +236,7 @@ def _shape(text: TranslatableText) -> tuple[object, ...]:
         ),
         len(text.missing_information),
         len(text.recommended_actions),
+        tuple(_review_shape(review) for review in text.investigation_review),
     )
 
 
@@ -167,6 +286,7 @@ def _apply(
             result.recommended_actions, text.recommended_actions, strict=True
         )
     ]
+    review = _completed_review(result)
     return result.model_copy(
         update={
             "response_language": language,
@@ -179,6 +299,11 @@ def _apply(
             "possible_causes": causes,
             "missing_information": checks,
             "recommended_actions": actions,
+            "investigation_review": apply_review_text(
+                review, text.investigation_review[0], language
+            )
+            if review and text.investigation_review
+            else result.investigation_review,
         }
     )
 
@@ -192,6 +317,42 @@ class TriageTranslator:
         if result.response_language == language:
             return result
         source = _extract(result)
+        translated = await self._translate_json(
+            source, TranslatableText, "triage_translation", TRANSLATION_SCHEMA, language, _shape
+        )
+        logger.info(
+            "Triage translated report_id=%s from=%s to=%s",
+            result.report_id,
+            result.response_language.value,
+            language.value,
+        )
+        return _apply(result, translated, language)
+
+    async def translate_review(
+        self, review: InvestigationReview, language: ResponseLanguage
+    ) -> InvestigationReview:
+        if review.language == language.value or review.status != ReviewStatus.COMPLETED:
+            return review
+        source = review_text(review)
+        translated = await self._translate_json(
+            source,
+            ReviewText,
+            "review_translation",
+            REVIEW_TRANSLATION_SCHEMA,
+            language,
+            _review_shape,
+        )
+        return apply_review_text(review, translated, language)
+
+    async def _translate_json(
+        self,
+        source: TextModel,
+        model: type[TextModel],
+        schema_name: str,
+        schema: dict[str, object],
+        language: ResponseLanguage,
+        shape: Callable[[TextModel], object],
+    ) -> TextModel:
         if sum(len(value) for value in _strings(source.model_dump())) > MAX_TRANSLATION_CHARS:
             raise AppError(413, "request_too_large", "This result is too long to translate.")
 
@@ -206,19 +367,13 @@ class TriageTranslator:
                     system=SYSTEM_PROMPT,
                     text=prompt,
                     images=[],
-                    schema_name="triage_translation",
-                    schema=TRANSLATION_SCHEMA,
+                    schema_name=schema_name,
+                    schema=schema,
                     max_tokens=8000,
                 )
-                translated = TranslatableText.model_validate_json(raw)
-                if _shape(translated) == _shape(source):
-                    logger.info(
-                        "Triage translated report_id=%s from=%s to=%s",
-                        result.report_id,
-                        result.response_language.value,
-                        language.value,
-                    )
-                    return _apply(result, translated, language)
+                translated = model.model_validate_json(raw)
+                if shape(translated) == shape(source):
+                    return translated
                 last_error = "translation changed the result structure"
             except ValidationError as exc:
                 last_error = f"invalid translation output ({exc.error_count()} errors)"
@@ -230,7 +385,7 @@ class TriageTranslator:
                 "Translation attempt %d/%d failed: %s", attempt, self._attempts, last_error
             )
 
-        logger.error("Translation unavailable for report_id=%s: %s", result.report_id, last_error)
+        logger.error("Translation unavailable (%s): %s", schema_name, last_error)
         raise AppError(
             502,
             "translation_unavailable",

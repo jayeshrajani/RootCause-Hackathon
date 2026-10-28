@@ -3,6 +3,7 @@ name = "rootcause-api"
 version = "0.1.0"
 description = "RootCause crop distress triage API"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1",
@@ -50,6 +51,9 @@ packages = ["app"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "live: calls the real Nebius/Tavily APIs; opt in with ROOTCAUSE_RUN_LIVE_TESTS=1",
+]
 
 [tool.ruff]
 line-length = 100

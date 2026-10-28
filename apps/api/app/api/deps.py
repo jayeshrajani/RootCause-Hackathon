@@ -7,6 +7,11 @@ from app.integrations.cerebras import CerebrasClient
 from app.integrations.google_speech import GoogleSpeechClient
 from app.integrations.open_meteo import OpenMeteoClient
 from app.integrations.vision import VisionModel
+from app.services.investigation.followup import FollowUpService
+from app.services.investigation.orchestrator import (
+    InvestigatingTriageService,
+    InvestigationRuntime,
+)
 from app.services.satellite import SatelliteService
 from app.services.transcription import TranscriptionService
 from app.services.triage import AiTriageService, MockTriageService, TriageService
@@ -88,6 +93,42 @@ def get_crop_identifier(
 def get_triage_translator(settings: SettingsDep) -> TriageTranslator | None:
     client = vision_model(settings)
     return TriageTranslator(client) if client is not None else None
+
+
+TriageTranslatorDep = Annotated[TriageTranslator | None, Depends(get_triage_translator)]
+
+
+def get_investigation_runtime(request: Request) -> InvestigationRuntime | None:
+    runtime: InvestigationRuntime | None = getattr(request.app.state, "investigation", None)
+    return runtime
+
+
+InvestigationRuntimeDep = Annotated[InvestigationRuntime | None, Depends(get_investigation_runtime)]
+
+
+def get_investigating_triage_service(
+    settings: SettingsDep,
+    runtime: InvestigationRuntimeDep,
+    translator: TriageTranslatorDep,
+    service: Annotated[TriageService, Depends(get_triage_service)],
+    weather: Annotated[CachedWeatherClient | None, Depends(get_weather_client)] = None,
+) -> TriageService:
+    """The triage service plus guidance search and the Nemotron review, when available."""
+    if runtime is None:
+        return service
+    return InvestigatingTriageService(
+        service,
+        runtime,
+        translator=translator,
+        translator_label=("Cerebras", settings.cerebras_model),
+        geocoder=weather,
+    )
+
+
+def get_follow_up_service(
+    runtime: InvestigationRuntimeDep, translator: TriageTranslatorDep
+) -> FollowUpService | None:
+    return FollowUpService(runtime, translator=translator) if runtime is not None else None
 
 
 _speech_clients: dict[tuple[str, str, str, float], GoogleSpeechClient] = {}

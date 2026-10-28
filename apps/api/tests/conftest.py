@@ -24,6 +24,22 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+_PROVIDER_KEYS = (
+    "NEBIUS_API_KEY",
+    "ROOTCAUSE_NEBIUS_API_KEY",
+    "TAVILY_API_KEY",
+    "ROOTCAUSE_TAVILY_API_KEY",
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_provider_keys(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unit tests must never reach Nebius or Tavily, even if keys are exported in the shell."""
+    if request.node.get_closest_marker("live") is None:
+        for name in _PROVIDER_KEYS:
+            monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(

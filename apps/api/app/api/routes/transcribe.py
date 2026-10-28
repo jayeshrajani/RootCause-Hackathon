@@ -4,6 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from app.api.deps import SettingsDep, get_transcription_service
+from app.core.rate_limit import enforce_rate_limit
 from app.schemas.errors import ErrorResponse
 from app.schemas.transcription import TranscriptionResponse
 from app.services.transcription import (
@@ -24,6 +25,7 @@ _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": "Missing/empty recording, unsupported language or no speech",
     },
     502: {"model": ErrorResponse, "description": "Transcription provider failed"},
+    429: {"model": ErrorResponse, "description": "Too many requests from this client"},
     503: {
         "model": ErrorResponse,
         "description": "Transcription not configured or credentials unavailable",
@@ -32,7 +34,7 @@ _ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-@router.post("/transcribe", responses=_ERROR_RESPONSES)
+@router.post("/transcribe", responses=_ERROR_RESPONSES, dependencies=[Depends(enforce_rate_limit)])
 async def transcribe(
     settings: SettingsDep,
     service: Annotated[TranscriptionService, Depends(get_transcription_service)],
