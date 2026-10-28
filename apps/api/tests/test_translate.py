@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_triage_translator
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.integrations.cerebras import CerebrasClient
+from app.integrations.gemini import GeminiClient
 from app.main import create_app
 from app.schemas.investigation import (
     FollowUpCategory,
@@ -38,7 +38,7 @@ from app.schemas.triage import (
     TriageStatus,
     UrgencyLevel,
 )
-from app.services.triage.translate import TriageTranslator
+from app.services.triage.translate import REVIEW_TRANSLATION_SCHEMA, TriageTranslator
 
 pytestmark = pytest.mark.anyio
 
@@ -140,8 +140,13 @@ def completion(content: dict[str, Any]) -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "choices": [{"message": {"content": json.dumps(content)}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": json.dumps(content)}]},
+                    "finishReason": "STOP",
+                }
+            ],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 20},
         },
     )
 
@@ -154,8 +159,8 @@ def translator_with(*responses: httpx.Response) -> tuple[TriageTranslator, list[
         sent.append(json.loads(request.content))
         return queue.pop(0)
 
-    client = CerebrasClient(
-        api_key="test-key", model="qwen-test", transport=httpx.MockTransport(handler)
+    client = GeminiClient(
+        api_key="test-key", model="gemini-test", transport=httpx.MockTransport(handler)
     )
     return TriageTranslator(client), sent
 
@@ -181,11 +186,12 @@ async def test_translation_replaces_text_and_keeps_scores_and_farmer_words() -> 
     assert translated.report_id == "rpt_translate"
     assert translated.location_label == "Bhopal"
 
-    prompt = sent[0]["messages"][1]["content"][0]["text"]
+    prompt = sent[0]["contents"][0]["parts"][0]["text"]
     assert prompt.startswith("Target language: English")
     assert "निचली पत्तियों" in prompt
     assert "पीली हो रही" not in prompt
-    assert sent[0]["response_format"]["json_schema"]["name"] == "triage_translation"
+    assert sent[0]["generationConfig"]["responseMimeType"] == "application/json"
+    assert sent[0]["generationConfig"]["responseJsonSchema"]["type"] == "object"
 
 
 async def test_translation_that_changes_structure_is_retried_then_rejected() -> None:
@@ -320,7 +326,7 @@ async def test_review_translation_keeps_ids_sources_and_statuses() -> None:
     step = translated.safe_next_steps[0]
     assert step.source_ids == ["S1"] and step.support_status == "source_backed"
     assert translated.supporting_observations[0].evidence_ids == ["ev_photo_1"]
-    assert sent[0]["response_format"]["json_schema"]["name"] == "review_translation"
+    assert sent[0]["generationConfig"]["responseJsonSchema"] == REVIEW_TRANSLATION_SCHEMA
 
 
 async def test_review_translation_that_changes_shape_is_rejected() -> None:
@@ -357,4 +363,4 @@ async def test_full_translation_carries_the_review() -> None:
     assert translated.investigation_review is not None
     assert translated.investigation_review.language == "en"
     assert translated.investigation_review.safe_next_steps[0].action == "Remove spotted leaves."
-    assert '"investigation_review"' in sent[0]["messages"][1]["content"][0]["text"]
+    assert '"investigation_review"' in sent[0]["contents"][0]["parts"][0]["text"]

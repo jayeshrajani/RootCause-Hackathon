@@ -19,6 +19,8 @@
   --color-clay-400: #e3a35f;
   --color-clay-500: #cf8336;
   --color-clay-600: #a8621f;
+  /* NVIDIA green: only for the second-stage (Nemotron) accents. */
+  --color-nvidia: #76b900;
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }

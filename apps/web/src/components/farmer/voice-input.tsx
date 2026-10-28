@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
 import { useFormContext } from "react-hook-form";
 import { AlertCircle, Check, Mic, RotateCcw, Square, X } from "lucide-react";
 
@@ -9,15 +10,7 @@ import { useVoiceRecorder, type RecorderError } from "@/hooks/use-voice-recorder
 import { TranscriptionError, transcribeAudio, type TranscriptionFailure } from "@/lib/api/client";
 import { useI18n, type TranslationKey } from "@/lib/i18n";
 import type { ReportFormInput } from "@/lib/schemas/report";
-import { cn } from "@/lib/utils";
-import {
-  SPEECH_LANGUAGES,
-  combineDescription,
-  formatClock,
-  speechLanguageFor,
-  type InsertMode,
-  type SpeechLanguage,
-} from "@/lib/voice/audio";
+import { AUTO_LANGUAGE, combineDescription, formatClock } from "@/lib/voice/audio";
 
 const RECORDER_MESSAGES: Record<RecorderError, TranslationKey> = {
   unsupported: "voiceUnsupported",
@@ -37,11 +30,13 @@ const FAILURE_MESSAGES: Record<TranscriptionFailure, TranslationKey> = {
   failed: "voiceFailed",
 };
 
+// Decorative idle waveform bar heights (px).
+const WAVE = [8, 14, 22, 12, 18, 24, 10, 16, 20, 9, 15];
+
 type Phase =
   | { kind: "idle" }
   | { kind: "transcribing" }
-  | { kind: "confirm"; transcript: string }
-  | { kind: "done" }
+  | { kind: "done"; transcript: string }
   | { kind: "error"; message: TranslationKey; canRetry: boolean };
 
 const secondaryButton =
@@ -49,26 +44,19 @@ const secondaryButton =
 const primaryButton =
   "inline-flex min-h-10 items-center gap-1.5 rounded-full bg-forest-900 px-4 text-sm font-medium text-mint-100 transition-colors hover:bg-forest-700 disabled:opacity-50";
 
-/** Optional voice note: records, transcribes, and fills the report's existing `description`. */
-export function VoiceInput({ onTranscribed }: { onTranscribed?: () => void }) {
-  const { t, language } = useI18n();
+/** Voice note: records, transcribes (English or Hindi, detected by the API), adds the text to the
+ * report's `description` and hands it on so the report can continue without typing. */
+export function VoiceInput({ onTranscribed }: { onTranscribed?: (transcript: string) => void }) {
+  const { t } = useI18n();
   const { getValues, setValue } = useFormContext<ReportFormInput>();
-  // Follows the interface language (which settles after hydration) until the farmer picks one.
-  const [pickedLanguage, setPickedLanguage] = useState<SpeechLanguage | null>(null);
-  const speechLanguage = pickedLanguage ?? speechLanguageFor(language);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const lastAudio = useRef<Blob | null>(null);
   const request = useRef<AbortController | null>(null);
+  const onTranscribedRef = useRef(onTranscribed);
 
-  const apply = useCallback(
-    (transcript: string, mode: InsertMode) => {
-      const next = combineDescription(getValues("description") ?? "", transcript, mode);
-      setValue("description", next, { shouldDirty: true, shouldValidate: true });
-      setPhase({ kind: "done" });
-      onTranscribed?.();
-    },
-    [getValues, onTranscribed, setValue],
-  );
+  useEffect(() => {
+    onTranscribedRef.current = onTranscribed;
+  }, [onTranscribed]);
 
   const transcribe = useCallback(
     async (audio: Blob) => {
@@ -78,10 +66,12 @@ export function VoiceInput({ onTranscribed }: { onTranscribed?: () => void }) {
       request.current = controller;
       setPhase({ kind: "transcribing" });
       try {
-        const { transcript } = await transcribeAudio(audio, speechLanguage, controller.signal);
+        const { transcript } = await transcribeAudio(audio, AUTO_LANGUAGE, controller.signal);
         if (controller.signal.aborted) return;
-        if ((getValues("description") ?? "").trim()) setPhase({ kind: "confirm", transcript });
-        else apply(transcript, "replace");
+        const next = combineDescription(getValues("description") ?? "", transcript, "append");
+        setValue("description", next, { shouldDirty: true, shouldValidate: true });
+        setPhase({ kind: "done", transcript });
+        onTranscribedRef.current?.(transcript);
       } catch (error) {
         if (controller.signal.aborted) return;
         const reason = error instanceof TranscriptionError ? error.reason : "failed";
@@ -94,7 +84,7 @@ export function VoiceInput({ onTranscribed }: { onTranscribed?: () => void }) {
         if (request.current === controller) request.current = null;
       }
     },
-    [apply, getValues, speechLanguage],
+    [getValues, setValue],
   );
 
   const recorder = useVoiceRecorder({ onRecorded: (audio) => void transcribe(audio) });
@@ -113,7 +103,6 @@ export function VoiceInput({ onTranscribed }: { onTranscribed?: () => void }) {
     if (lastAudio.current) void transcribe(lastAudio.current);
   };
 
-  const busy = recorder.status !== "idle" || phase.kind === "transcribing";
   const error =
     phase.kind === "error"
       ? { message: phase.message, canRetry: phase.canRetry }
@@ -123,28 +112,6 @@ export function VoiceInput({ onTranscribed }: { onTranscribed?: () => void }) {
 
   return (
     <div className="space-y-3">
-      <div role="group" aria-label={t("voiceLanguage")} className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-muted-foreground">{t("voiceLanguage")}</span>
-        {SPEECH_LANGUAGES.map(({ code, label }) => (
-          <button
-            key={code}
-            type="button"
-            lang={code}
-            aria-pressed={speechLanguage === code}
-            disabled={busy}
-            onClick={() => setPickedLanguage(code)}
-            className={cn(
-              "inline-flex h-9 items-center rounded-full border px-3.5 text-sm transition-colors disabled:opacity-60",
-              speechLanguage === code
-                ? "border-forest-900 bg-forest-900 text-mint-100"
-                : "border-forest-900/15 bg-white/70 hover:border-forest-900/40",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
       {recorder.status === "recording" ? (
         <div className="rounded-lg border border-red-300 bg-red-50/70 p-4">
           <div className="flex items-center gap-3">
@@ -187,13 +154,34 @@ export function VoiceInput({ onTranscribed }: { onTranscribed?: () => void }) {
           type="button"
           onClick={begin}
           disabled={recorder.status === "requesting"}
-          className="flex min-h-16 w-full items-center gap-4 rounded-lg border border-forest-900/15 bg-white/60 p-4 text-left transition-colors hover:border-forest-900/40 hover:bg-white disabled:cursor-wait"
+          className="group flex w-full flex-col items-center gap-5 rounded-[22px] px-4 py-8 text-center transition-colors hover:bg-white/60 disabled:cursor-wait"
         >
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-forest-900 text-mint-100">
-            <Mic className="size-5" aria-hidden />
+          <span className="relative flex size-28 items-center justify-center">
+            {[0, 1].map((ring) => (
+              <motion.span
+                key={ring}
+                aria-hidden
+                className="absolute inset-0 rounded-full border border-forest-700/30"
+                animate={{ scale: [1, 1.45], opacity: [0.6, 0] }}
+                transition={{ duration: 2.8, repeat: Infinity, delay: ring * 1.4, ease: "easeOut" }}
+              />
+            ))}
+            <span className="relative flex size-24 items-center justify-center rounded-full bg-forest-900 text-mint-100 shadow-[0_18px_40px_-16px_rgba(22,54,38,0.7)] transition-transform duration-300 group-hover:scale-105">
+              <Mic className="size-9" aria-hidden />
+            </span>
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium">
+          <span className="flex h-6 items-center gap-1" aria-hidden>
+            {WAVE.map((height, i) => (
+              <motion.span
+                key={i}
+                className="w-1 rounded-full bg-forest-700/35"
+                animate={{ height: [height * 0.4, height, height * 0.4] }}
+                transition={{ duration: 1.6, repeat: Infinity, delay: i * 0.08, ease: "easeInOut" }}
+              />
+            ))}
+          </span>
+          <span className="space-y-1">
+            <span className="block text-lg font-medium">
               {phase.kind === "done" ? t("voiceRecordAgain") : t("recordVoice")}
             </span>
             <span className="block text-sm text-muted-foreground">
@@ -205,29 +193,12 @@ export function VoiceInput({ onTranscribed }: { onTranscribed?: () => void }) {
 
       <div aria-live="polite" className="space-y-2">
         {phase.kind === "done" ? (
-          <p className="flex items-center gap-2 text-sm text-forest-700">
-            <Check className="size-4 shrink-0" aria-hidden />
-            {t("voiceAdded")}
-          </p>
-        ) : null}
-
-        {phase.kind === "confirm" ? (
-          <div className="rounded-lg border border-forest-900/15 bg-mint-100/60 p-3 text-sm">
-            <p>{t("voiceExisting")}</p>
-            <p lang={speechLanguage} className="mt-2 rounded-md bg-white/80 p-2 italic">
-              “{phase.transcript}”
+          <div className="rounded-lg border border-forest-900/10 bg-mint-100/60 p-3 text-sm">
+            <p className="flex items-center gap-2 font-medium text-forest-700">
+              <Check className="size-4 shrink-0" aria-hidden />
+              {t("voiceHeard")}
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" className={primaryButton} onClick={() => apply(phase.transcript, "replace")}>
-                {t("voiceReplace")}
-              </button>
-              <button type="button" className={secondaryButton} onClick={() => apply(phase.transcript, "append")}>
-                {t("voiceAppend")}
-              </button>
-              <button type="button" className={secondaryButton} onClick={() => setPhase({ kind: "idle" })}>
-                {t("voiceKeepMine")}
-              </button>
-            </div>
+            <p className="mt-1.5 italic">“{phase.transcript}”</p>
           </div>
         ) : null}
 

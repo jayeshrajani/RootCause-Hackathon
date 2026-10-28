@@ -23,6 +23,7 @@ from app.services.knowledge.agronomy import AgronomyResearchService
 from app.services.knowledge.sources import approved_sources
 from app.services.satellite import SatelliteService
 from app.services.triage.references import RetrievalReferenceProvider
+from app.services.usage import InvestigationLimiter
 from app.services.weather import CachedWeatherClient
 
 logger = logging.getLogger(__name__)
@@ -131,6 +132,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Shared so crop identification can warm the weather cache for the following triage.
     app.state.weather_client = CachedWeatherClient(OpenMeteoClient())
     app.state.investigation = build_investigation_runtime(settings)
+    # Investigations (POST /triage): per browser session, plus a per-IP hourly backstop.
+    app.state.investigation_limiter = InvestigationLimiter(
+        session_limit=settings.investigations_per_session,
+        ip_limit_per_hour=settings.investigations_per_ip_hour,
+    )
+    # Other model-backed routes (identify, translate, transcribe, follow-up).
     app.state.rate_limiter = (
         RateLimiter(
             limit_per_hour=settings.rate_limit_per_hour,

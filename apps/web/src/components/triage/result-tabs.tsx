@@ -49,8 +49,9 @@ export function ResultTabs({ tabs }: { tabs: ResultTab[] }) {
           role="tablist"
           aria-label="Triage details"
           onKeyDown={onKeyDown}
-          className="grid rounded-full bg-forest-900/[0.06] p-1"
-          style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+          className="grid overflow-x-auto rounded-full bg-forest-900/[0.06] p-1 [scrollbar-width:none]"
+          // Equal widths when the labels fit; otherwise the bar scrolls sideways instead of clipping.
+          style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(max-content, 1fr))` }}
         >
           {tabs.map((tab) => {
             const selected = tab.id === current.id;
@@ -65,7 +66,7 @@ export function ResultTabs({ tabs }: { tabs: ResultTab[] }) {
                 tabIndex={selected ? 0 : -1}
                 onClick={() => select(tab.id)}
                 className={cn(
-                  "relative h-10 rounded-full px-2 text-sm font-medium transition-colors",
+                  "relative h-10 rounded-full px-3 text-sm font-medium whitespace-nowrap transition-colors",
                   selected ? "text-mint-100" : "text-forest-900/60 hover:text-forest-900",
                 )}
               >

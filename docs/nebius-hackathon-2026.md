@@ -3,18 +3,24 @@
 ## Timeline
 
 The first version of RootCause was built from 14 to 17 October 2026 and imported into this
-repository as a snapshot ("first commit"), so its commit date does not show when that work
-was done. It included:
+repository as snapshots, so its commit dates do not show when that work was done.
 
-- Next.js report wizard and results UI in five languages, with result translation
-- FastAPI triage: photo and report analysis by Qwen 3.8 on Cerebras with a strict JSON schema
+**First version (14 to 17 October 2026):**
+
+- Next.js photo-first report flow (built-in sample photos, voice note, location prompt) and
+  results UI in five languages, with result translation and a per-visit investigation limit
+- FastAPI triage: photo and report analysis by Gemini Flash (priority and fallback keys), with
+  Qwen 3.8 on Cerebras as fallback, under a strict JSON schema
 - Open-Meteo weather, Google Earth Engine Sentinel-2 NDVI/NDMI, DINOv2 + FAISS reference photos
 - Deterministic evidence-fit scores with an evidence ledger, urgency and expert-review flags
-- Voice input through Google Speech-to-Text
+- Voice input (Gemini, with Google Speech-to-Text as fallback) and read-aloud (Gemini TTS)
+- The *Treat it* tab: generic, label-first treatment guidance and nearby agri-input shops
+  (Gemini grounded on Google Maps)
+- Cloud Run deployment files (Dockerfiles, Cloud Build)
 
 ## Investigation stage (from 28 October 2026)
 
-Everything after the first version:
+The Nemotron and Tavily investigation and the work to integrate it with the first version:
 
 | Area | New work |
 | --- | --- |
@@ -24,10 +30,10 @@ Everything after the first version:
 | Tavily research | `app/integrations/tavily.py`, `app/services/knowledge/`: approved-publisher allowlist, server-built queries, independent URL and relevance validation, dose-free excerpts, optional Extract, 6-hour cache |
 | Orchestration | `app/services/investigation/orchestrator.py`: wraps the existing triage, 55 s budget, honest per-step trace, strict mode, daily cap, review translation |
 | Follow-up | `POST /api/v1/triage/follow-up`: one yes / no / not-sure answer, recorded as evidence, review redone, scores unchanged |
-| Abuse and cost controls | Per-client hourly rate limit on model endpoints, daily review cap |
+| Abuse and cost controls | Per-client hourly rate limit on crop identification, translation, transcription and follow-up; daily review cap; every per-IP limit (including the first version's) reads the proxy-appended client address, so it cannot be spoofed |
 | Contract | Optional `investigation_review`, `agronomy_sources`, `integration_status`; new `/health` diagnostics |
-| Web | Review and Sources tabs, provenance section, follow-up card, strings in five languages |
-| Deployment | Dockerfiles, `deploy/cloudbuild.yaml` for Cloud Run with Secret Manager and strict mode |
+| Web | Review and Sources tabs (next to the existing *Treat it* tab), provenance section, follow-up card, the guidance and cross-check steps on the analysis screen, strings in five languages |
+| Deployment | Nebius and Tavily keys in Secret Manager, strict mode, session affinity and the time budget added to the Cloud Run pipeline |
 | Docs and licence | MIT licence, this timeline, demo script, updated README and architecture |
 
 ## Why the integrations are substantial
@@ -58,8 +64,8 @@ the analysis model; Nemotron 3 Super does not officially support those languages
 
 ## How judges can verify the integrations
 
-1. Open the demo and submit a crop photo (tomato or potato works best), with a place name for
-   weather and, if possible, GPS for satellite evidence.
+1. Open the demo and submit a crop photo, or tap a built-in sample (tomato or potato works best),
+   with a place name for weather and, if possible, GPS for satellite evidence.
 2. On the result, open **How this result was checked**. The *Evidence review* row shows the
    provider `Nebius Token Factory`, the model `nvidia/nemotron-3-super-120b-a12b`, its real status
    and duration. *Guidance search* shows Tavily's status and the number of validated sources.
@@ -73,7 +79,7 @@ the analysis model; Nemotron 3 Super does not officially support those languages
 ## Setup
 
 See the README (keys) and [deploy/README.md](../deploy/README.md) (Cloud Run). Minimum for the
-full experience: `CEREBRAS_API_KEY`, `NEBIUS_API_KEY`, `TAVILY_API_KEY`.
+full experience: `GEMINI_API_KEY` (or `CEREBRAS_API_KEY`), `NEBIUS_API_KEY`, `TAVILY_API_KEY`.
 
 ## Devpost description (draft)
 
@@ -93,8 +99,8 @@ retrieved, cannot change scores or urgency, and any chemical dose or brand is re
 a referral to the local extension office or KVK. Every result shows which providers ran and what
 happened, including failures. It is triage, never a diagnosis.
 
-Built with Next.js, FastAPI, NVIDIA Nemotron 3 Super on Nebius Token Factory, Tavily, Qwen on
-Cerebras, Open-Meteo, Google Earth Engine and Cloud Run.
+Built with Next.js, FastAPI, NVIDIA Nemotron 3 Super on Nebius Token Factory, Tavily, Gemini (with
+Qwen on Cerebras as fallback), Open-Meteo, Google Earth Engine and Cloud Run.
 
 ## Technology feedback (for the project owner to complete)
 

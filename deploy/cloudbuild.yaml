@@ -3,8 +3,8 @@
 #   gcloud builds submit --config deploy/cloudbuild.yaml \
 #     --substitutions=_API_URL=<api-url>,_WEB_URL=<web-url>
 #
-# Keys come from Secret Manager (cerebras-api-key, nebius-api-key, tavily-api-key), never from
-# this file, the images or the repository.
+# Keys come from Secret Manager (gemini-api-key, cerebras-api-key, nebius-api-key,
+# tavily-api-key), never from this file, the images or the repository.
 
 substitutions:
   _REGION: asia-south1
@@ -72,9 +72,10 @@ steps:
       - --concurrency=20
       - --max-instances=2
       - --timeout=180
+      - --cpu-boost
       # Follow-up answers are kept in memory; affinity routes a browser back to its instance.
       - --session-affinity
-      - --set-secrets=CEREBRAS_API_KEY=cerebras-api-key:latest,NEBIUS_API_KEY=nebius-api-key:latest,TAVILY_API_KEY=tavily-api-key:latest
+      - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest,CEREBRAS_API_KEY=cerebras-api-key:latest,NEBIUS_API_KEY=nebius-api-key:latest,TAVILY_API_KEY=tavily-api-key:latest
       - >-
         --set-env-vars=^@^ROOTCAUSE_ENVIRONMENT=production@ROOTCAUSE_CORS_ORIGINS=["${_WEB_URL}"]@ROOTCAUSE_HACKATHON_REQUIRE_LIVE_NEBIUS=true@ROOTCAUSE_TRUSTED_PROXY_HOPS=1@ROOTCAUSE_RATE_LIMIT_PER_HOUR=${_RATE_LIMIT_PER_HOUR}@ROOTCAUSE_INVESTIGATION_DAILY_LIMIT=${_INVESTIGATION_DAILY_LIMIT}@GOOGLE_CLOUD_PROJECT_ID=${_GOOGLE_CLOUD_PROJECT_ID}
 

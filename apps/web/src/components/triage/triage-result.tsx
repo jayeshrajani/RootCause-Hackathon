@@ -11,6 +11,7 @@ import { InvestigationReviewPanel } from "@/components/triage/investigation-revi
 import { PossibleCauses } from "@/components/triage/possible-causes";
 import { ResultTabs, type ResultTab } from "@/components/triage/result-tabs";
 import { SummaryCard } from "@/components/triage/summary-card";
+import { TreatPanel } from "@/components/triage/treat-panel";
 import type { TriageResponse } from "@/types/triage";
 import { useI18n } from "@/lib/i18n";
 
@@ -65,6 +66,11 @@ export function TriageResult({ result }: { result: TriageResponse }) {
                 label: t("doNext"),
                 count: result.recommended_actions.length,
                 content: <ActionList actions={result.recommended_actions} />,
+              },
+              {
+                id: "treat",
+                label: t("treatTab"),
+                content: <TreatPanel result={result} />,
               },
               ...investigationTabs,
             ]}

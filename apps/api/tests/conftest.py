@@ -25,6 +25,13 @@ def anyio_backend() -> str:
 
 
 _PROVIDER_KEYS = (
+    "GEMINI_API_KEY",
+    "GEMINI_API_KEY_PRIORITY",
+    "GEMINI_API_KEY_FALLBACK",
+    "ROOTCAUSE_GEMINI_API_KEY",
+    "ROOTCAUSE_GEMINI_API_KEY_FALLBACK",
+    "CEREBRAS_API_KEY",
+    "ROOTCAUSE_CEREBRAS_API_KEY",
     "NEBIUS_API_KEY",
     "ROOTCAUSE_NEBIUS_API_KEY",
     "TAVILY_API_KEY",
@@ -34,7 +41,7 @@ _PROVIDER_KEYS = (
 
 @pytest.fixture(autouse=True)
 def _no_live_provider_keys(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unit tests must never reach Nebius or Tavily, even if keys are exported in the shell."""
+    """Unit tests must never reach a paid provider, even if keys are exported in the shell."""
     if request.node.get_closest_marker("live") is None:
         for name in _PROVIDER_KEYS:
             monkeypatch.delenv(name, raising=False)

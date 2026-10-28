@@ -313,6 +313,15 @@ class TriageTranslator:
         self._client = client
         self._attempts = attempts
 
+    @property
+    def provider_label(self) -> str:
+        """Provider of the last call; changes when a fallback model answered."""
+        return str(getattr(self._client, "provider_label", "AI model"))
+
+    @property
+    def model(self) -> str:
+        return self._client.model
+
     async def translate(self, result: TriageResponse, language: ResponseLanguage) -> TriageResponse:
         if result.response_language == language:
             return result

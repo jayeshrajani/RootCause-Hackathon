@@ -1,8 +1,16 @@
 import type { ReportFormValues } from "@/lib/schemas/report";
-import type { ApiErrorBody, CropIdentification, FollowUpAnswer, TriageResponse } from "@/types/triage";
+import type {
+  ApiErrorBody,
+  CropIdentification,
+  FollowUpAnswer,
+  Shop,
+  TreatmentPlan,
+  TriageResponse,
+} from "@/types/triage";
 import type { LocationOption } from "@/types/location";
 import type { Language } from "@/lib/i18n";
 import { fileExtension } from "@/lib/voice/audio";
+import { VISIT_HEADER, markLimitReached, recordInvestigation, visitId } from "@/lib/visit";
 
 export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
@@ -11,7 +19,7 @@ export const API_BASE_URL = (
 // Covers the first-stage triage plus the guidance search and NVIDIA evidence review.
 const REQUEST_TIMEOUT_MS = 120_000;
 
-export type ApiErrorKind = "network" | "timeout" | "validation" | "server";
+export type ApiErrorKind = "network" | "timeout" | "validation" | "server" | "limit";
 
 export class ApiError extends Error {
   constructor(
@@ -58,6 +66,7 @@ export async function submitTriageReport(
   try {
     response = await fetch(`${API_BASE_URL}/api/v1/triage`, {
       method: "POST",
+      headers: { [VISIT_HEADER]: visitId() },
       body: toFormData(values, language),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
@@ -74,6 +83,10 @@ export async function submitTriageReport(
   const body: unknown = await response.json().catch(() => null);
 
   if (!response.ok) {
+    if (response.status === 429 && isApiErrorBody(body) && body.error.code === "investigation_limit") {
+      markLimitReached();
+      throw new ApiError("limit", body.error.message, [], 429);
+    }
     if (isApiErrorBody(body)) {
       const fieldErrors = body.error.details.flatMap((d) =>
         d.field ? [{ field: d.field, message: d.message }] : [],
@@ -89,6 +102,7 @@ export async function submitTriageReport(
     );
   }
 
+  recordInvestigation();
   return body as TriageResponse;
 }
 
@@ -262,4 +276,53 @@ export async function transcribeAudio(
     throw new TranscriptionError("failed", "Unexpected transcription response.");
   }
   return body as Transcription;
+}
+
+const SPEAK_TIMEOUT_MS = 45_000;
+
+/** Gemini text-to-speech for a result summary; resolves to a playable WAV blob. */
+export async function speakText(text: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/speak`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+    signal: withTimeout(signal, SPEAK_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`Read-aloud failed (HTTP ${response.status})`);
+  return response.blob();
+}
+
+async function postJson<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}/api/v1${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: withTimeout(signal, 45_000),
+  });
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new ApiError(
+      response.status >= 500 ? "server" : "validation",
+      isApiErrorBody(data) ? data.error.message : `HTTP ${response.status}`,
+      [],
+      response.status,
+    );
+  }
+  return data as T;
+}
+
+/** Generic, label-first treatment guidance for the likely cause (never brands or doses). */
+export function fetchTreatment(
+  request: { crop: string; cause: string; evidence_fit_score: number | null; response_language: string },
+  signal?: AbortSignal,
+): Promise<TreatmentPlan> {
+  return postJson<TreatmentPlan>("/triage/treatment", request, signal);
+}
+
+/** Agri-input shops near the field, from Google Maps via Gemini. */
+export async function fetchAgriShops(
+  where: { latitude: number; longitude: number } | { place: string },
+  signal?: AbortSignal,
+): Promise<Shop[]> {
+  return (await postJson<{ shops: Shop[] }>("/places/agri-shops", where, signal)).shops;
 }

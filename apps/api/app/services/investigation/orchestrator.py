@@ -385,10 +385,9 @@ class InvestigatingTriageService:
         inner: TriageService,
         runtime: InvestigationRuntime,
         *,
-        image_provider: str = "Cerebras",
+        image_provider: str = "AI model",
         image_model: str | None = None,
         translator: ReviewTranslator | None = None,
-        translator_label: tuple[str, str | None] = ("Cerebras", None),
         geocoder: Geocoder | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -397,7 +396,6 @@ class InvestigatingTriageService:
         self._image_provider = image_provider
         self._image_model = image_model
         self._translator = translator
-        self._translator_label = translator_label
         self._geocoder = geocoder
         self._clock = clock
 
@@ -571,12 +569,18 @@ class InvestigatingTriageService:
         runtime.tracker.review_succeeded()
         return review, False
 
+    def _translation_label(self) -> tuple[str, str | None]:
+        """Read after the call: a fallback chain reports the model that actually answered."""
+        provider = getattr(self._translator, "provider_label", None)
+        model = getattr(self._translator, "model", None)
+        return str(provider or "AI model"), model if isinstance(model, str) else None
+
     async def _translate(
         self, review: InvestigationReview, language: ResponseLanguage, deadline: float
     ) -> tuple[InvestigationReview, IntegrationStep]:
-        provider, model = self._translator_label
         remaining = deadline - time.monotonic()
         if self._translator is None or remaining < _MIN_TRANSLATION_SECONDS:
+            provider, model = self._translation_label()
             reason = (
                 "No translation model is configured"
                 if self._translator is None
@@ -595,6 +599,7 @@ class InvestigatingTriageService:
                 translated = await self._translator.translate_review(review, language)
         except Exception:
             logger.warning("Review translation failed; showing English")
+            provider, model = self._translation_label()
             return review, _step(
                 IntegrationStepName.TRANSLATION,
                 provider,
@@ -603,6 +608,7 @@ class InvestigatingTriageService:
                 model=model,
                 duration_ms=_ms(started),
             )
+        provider, model = self._translation_label()
         return translated, _step(
             IntegrationStepName.TRANSLATION,
             provider,

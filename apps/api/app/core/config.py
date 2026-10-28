@@ -6,7 +6,9 @@ from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _API_DIR = Path(__file__).resolve().parents[2]
-_REPO_ROOT = _API_DIR.parents[1]
+# In the source checkout this is ``<repo>/apps/api``; the container only copies
+# the API package to ``/app`` and gets configuration from Cloud Run env vars.
+_REPO_ROOT = _API_DIR.parents[1] if len(_API_DIR.parents) > 1 else _API_DIR
 
 MEBIBYTE = 1024 * 1024
 
@@ -25,12 +27,33 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 
+    # Investigations (POST /triage) per browser session, plus a per-IP hourly backstop for
+    # clients that rotate the session id. 0 disables a limit.
+    investigations_per_session: int = Field(default=5, ge=0)
+    investigations_per_ip_hour: int = Field(default=60, ge=0)
+
     max_images: int = Field(default=3, ge=1, le=10)
     max_image_bytes: int = Field(default=5 * MEBIBYTE, ge=1)
 
-    # "auto" uses Cerebras when CEREBRAS_API_KEY is set, otherwise the labelled mock.
-    analysis_provider: Literal["auto", "mock", "cerebras"] = "auto"
+    # "auto" prefers Gemini, then Cerebras, and otherwise uses the labelled mock.
+    analysis_provider: Literal["auto", "mock"] = "auto"
     analysis_timeout_seconds: float = Field(default=45, gt=0)
+
+    # Priority key, then an optional second key tried when calls on the first one fail.
+    gemini_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "GEMINI_API_KEY_PRIORITY", "GEMINI_API_KEY", "ROOTCAUSE_GEMINI_API_KEY"
+        ),
+    )
+    gemini_api_key_fallback: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "GEMINI_API_KEY_FALLBACK", "ROOTCAUSE_GEMINI_API_KEY_FALLBACK"
+        ),
+    )
+    gemini_model: str = "gemini-flash-latest"
+    gemini_rate_limit_fallback_model: str = "gemini-3-flash-preview"
 
     cerebras_api_key: SecretStr | None = Field(
         default=None,
@@ -64,9 +87,26 @@ class Settings(BaseSettings):
     satellite_stale_days: int = Field(default=20, ge=5, le=120)
     satellite_cache_ttl_seconds: int = Field(default=6 * 3600, ge=0)
 
-    # Voice input (Google Cloud Speech-to-Text V2). Project defaults to GOOGLE_CLOUD_PROJECT_ID;
-    # credentials come from ADC / the attached service account, never from files in Git.
+    # Voice input. "auto" uses Gemini (language auto-detected) when GEMINI_API_KEY is set, with
+    # Google Cloud Speech-to-Text V2 as a fallback when a project is configured.
     speech_enabled: bool = True
+    # Read-aloud of results (Gemini TTS; uses GEMINI_API_KEY). Models are tried in order.
+    tts_enabled: bool = True
+    tts_models: list[str] = Field(
+        default_factory=lambda: ["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts"]
+    )
+    tts_voice: str = "Kore"
+    tts_requests_per_ip_hour: int = Field(default=120, ge=0)
+    # Treatment guidance and nearby-shop search after a triage (Gemini; shops grounded on Maps).
+    assist_enabled: bool = True
+    shop_search_models: list[str] = Field(
+        default_factory=lambda: ["gemini-flash-lite-latest", "gemini-flash-latest"]
+    )
+    assist_requests_per_ip_hour: int = Field(default=120, ge=0)
+    speech_provider: Literal["auto", "gemini", "google"] = "auto"
+    speech_gemini_model: str = "gemini-flash-lite-latest"
+    # Speech-to-Text V2. Project defaults to GOOGLE_CLOUD_PROJECT_ID; credentials come from
+    # ADC / the attached service account, never from files in Git.
     speech_project_id: str | None = None
     speech_location: str = Field(default="us", pattern=r"^[a-z0-9-]{2,32}$")
     speech_model: str = "chirp_3"
@@ -112,13 +152,22 @@ class Settings(BaseSettings):
     follow_up_ttl_seconds: int = Field(default=3600, ge=60, le=24 * 3600)
     follow_up_max_reports: int = Field(default=500, ge=1, le=10_000)
 
-    # Per-client hourly cap on model-backed endpoints (in memory, per instance).
+    # Per-client hourly cap on the other model-backed endpoints (identify, translate, transcribe,
+    # follow-up); in memory, per instance. POST /triage uses the investigation limits above.
     rate_limit_enabled: bool = True
     rate_limit_per_hour: int = Field(default=60, ge=1)
-    # Proxies in front of the API that append to X-Forwarded-For (Cloud Run: 1).
+    # Proxies in front of the API that append to X-Forwarded-For (Cloud Run: 1). Every per-IP
+    # limit reads the client address this way.
     trusted_proxy_hops: int = Field(default=0, ge=0, le=5)
 
-    @field_validator("cerebras_api_key", "nebius_api_key", "tavily_api_key", mode="before")
+    @field_validator(
+        "gemini_api_key",
+        "gemini_api_key_fallback",
+        "cerebras_api_key",
+        "nebius_api_key",
+        "tavily_api_key",
+        mode="before",
+    )
     @classmethod
     def _blank_key_is_unset(cls, value: object) -> object:
         # `KEY=` placeholders in .env must not count as a configured provider.
@@ -137,18 +186,42 @@ class Settings(BaseSettings):
         return self.speech_project_id or self.google_cloud_project_id
 
     @property
+    def speech_uses_gemini(self) -> bool:
+        return (
+            self.speech_enabled and self.speech_provider != "google" and bool(self.gemini_api_keys)
+        )
+
+    @property
+    def speech_uses_google(self) -> bool:
+        return (
+            self.speech_enabled and self.speech_provider != "gemini" and bool(self.speech_project)
+        )
+
+    @property
     def speech_configured(self) -> bool:
-        return self.speech_enabled and bool(self.speech_project)
+        return self.speech_uses_gemini or self.speech_uses_google
 
     @property
     def satellite_configured(self) -> bool:
         return self.satellite_enabled and bool(self.google_cloud_project_id)
 
     @property
+    def gemini_api_keys(self) -> list[str]:
+        """Gemini keys in the order to try them (priority first), without duplicates."""
+        keys: list[str] = []
+        for secret in (self.gemini_api_key, self.gemini_api_key_fallback):
+            value = secret.get_secret_value().strip() if secret else ""
+            if value and value not in keys:
+                keys.append(value)
+        return keys
+
+    @property
+    def use_gemini(self) -> bool:
+        return self.analysis_provider != "mock" and bool(self.gemini_api_keys)
+
+    @property
     def use_cerebras(self) -> bool:
-        if self.analysis_provider == "cerebras":
-            return True
-        return self.analysis_provider == "auto" and self.cerebras_api_key is not None
+        return self.analysis_provider != "mock" and self.cerebras_api_key is not None
 
     @property
     def max_request_bytes(self) -> int:

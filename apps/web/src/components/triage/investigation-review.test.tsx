@@ -300,7 +300,9 @@ describe("TriageResult tabs", () => {
         result={result({ investigation_review: undefined, agronomy_sources: undefined, integration_status: undefined })}
       />,
     );
-    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+    expect(screen.getByRole("tab", { name: /Treat it/ })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: /Review|Sources/ })).toBeNull();
     expect(screen.queryByText("How this result was checked")).toBeNull();
   });
 });

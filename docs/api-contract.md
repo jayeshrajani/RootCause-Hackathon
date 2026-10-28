@@ -17,10 +17,12 @@ still be submitted without selecting a match, but weather lookup may not resolve
 ## `GET /health`
 
 ```json
-{ "status": "ok", "service": "rootcause-api", "version": "0.1.0", "analysis_mode": "ai", "model": "qwen-3.8-27b", "reference_photos": "ready" }
+{ "status": "ok", "service": "rootcause-api", "version": "0.1.0", "analysis_mode": "ai", "model": "gemini-flash-latest", "reference_photos": "ready" }
 ```
 
-`analysis_mode` is `ai` when an analysis provider is configured (currently Cerebras), else `mock`.
+`analysis_mode` is `ai` when Gemini or Cerebras is configured, else `mock`. Gemini is used first;
+Cerebras is attempted if Gemini returns a provider error. `model` reports the primary configured
+model.
 `reference_photos` is `disabled` (no `ROOTCAUSE_RETRIEVAL_INDEX_VERSION`), `loading` (model and
 index load in the background for about 30 s after startup), `ready` or `failed`.
 `satellite_imagery` is `configured` when `GOOGLE_CLOUD_PROJECT_ID` is set (credentials are only
@@ -92,6 +94,15 @@ farmer to pick from `candidates`. Model failures return `needs_confirmation: tru
 ## `POST /triage`
 
 `Content-Type: multipart/form-data`. Only photos are required; everything else sharpens the result.
+
+Each browser session ("visit") gets 5 investigations: the web app sends a random id in the
+`X-RootCause-Session` header (a session cookie). A per-IP cap (60 per hour) backs it up for clients
+that rotate the id. Requests that fail (validation or provider errors) are not counted. Counts are
+in memory per API instance. Configure with `ROOTCAUSE_INVESTIGATIONS_PER_SESSION` and
+`ROOTCAUSE_INVESTIGATIONS_PER_IP_HOUR` (0 disables). Behind a proxy, every per-IP cap reads the
+client address from `X-Forwarded-For`, trusting only `ROOTCAUSE_TRUSTED_PROXY_HOPS` entries from
+the right (Cloud Run: 1), so a client cannot pick its own address. Answering a follow-up question
+is not a new investigation.
 
 | Field | Type | Required | Rules |
 | --- | --- | --- | --- |
@@ -313,7 +324,7 @@ Every error uses one envelope:
 | 415 | `unsupported_image_type` | File bytes are not JPEG/PNG/WebP |
 | 422 | `validation_error` | Missing or invalid form fields (`details[].field` names the field) |
 | 422 | `images_required` / `too_many_images` / `empty_image` | Photo count or content problems |
-| 429 | `rate_limited` | Too many requests from this client (`ROOTCAUSE_RATE_LIMIT_PER_HOUR`, all model-backed endpoints) |
+| 429 | `investigation_limit` | This visit used its 5 investigations, or the IP's hourly cap was hit (then `Retry-After` is set) |
 | 500 | `internal_error` | Unexpected server failure |
 | 502 | `analysis_unavailable` | The AI provider failed, timed out or returned invalid output (after one retry). Never silently replaced by mock output |
 
@@ -359,20 +370,59 @@ instance that produced it.
 | 502 | `review_unavailable` | Nemotron failed; the answer is not recorded and can be retried |
 | 503 | `review_unavailable` | The review is not configured on this server |
 
+## `POST /triage/treatment`
+
+Generic, label-first treatment guidance for the likely cause, shown on the results page's
+"Treat it" tab: non-chemical steps first, then up to four generic **active ingredients** (never
+brands or doses), safety points and a note to confirm with the local KVK or agriculture officer.
+`confirm_first` is true unless `evidence_fit_score` is above 75. Uses the triage model chain
+(priority key, fallback key, then Cerebras). Capped per IP (`ROOTCAUSE_ASSIST_REQUESTS_PER_IP_HOUR`).
+
+JSON body: `{ "crop": "potato", "cause": "Late blight", "evidence_fit_score": 82, "response_language": "hi" }`.
+
+## `POST /places/agri-shops`
+
+Up to five agri-input shops or Krishi Vigyan Kendras near the field, from **Gemini grounded on
+Google Maps** (works with the Gemini API key; no Maps key). Only places returned by Maps grounding
+are listed, each with its Google Maps link and place id. JSON body: `{ "latitude": 18.52,
+"longitude": 73.86 }` or `{ "place": "Nashik, Maharashtra" }`. 422 `location_required` without
+either; 502 `shops_failed` if every key and model failed.
+
+## `POST /speak`
+
+Reads text aloud with Gemini text-to-speech (`gemini-3.8-flash-lite-tts`, falling back to
+`gemini-3.8-flash-tts`; retried once on 429/5xx). The web app sends the result's main points
+(cause, urgency, summary, first three steps) in the result's language, prefetches the clip when the
+result appears, and falls back to the browser's own speech voice if this call fails. Text and audio
+are not stored or logged. Capped per IP (`ROOTCAUSE_TTS_REQUESTS_PER_IP_HOUR`, default 120).
+
+JSON body: `{ "text": "..." }` (1–1200 characters). 200 response: `audio/wav` (24 kHz mono).
+
+| Status | Code | When |
+| --- | --- | --- |
+| 422 | `validation_error` | Empty or over 1200 characters |
+| 429 | `speak_limit` | Hourly per-IP cap reached (`Retry-After` set) |
+| 502 | `speech_failed` | Every TTS model failed |
+| 503 | `speech_unavailable` | No `GEMINI_API_KEY`, or `ROOTCAUSE_TTS_ENABLED=false` |
+
 ## `POST /transcribe`
 
-Optional voice input for the symptom description. Google Cloud Speech-to-Text V2 (`chirp_3`).
-The transcript is returned in the spoken language (never translated). The web app inserts it into
-the report's `description` field for the farmer to review and edit; it is not stored by the API.
+Voice input for the symptom description. Gemini (`gemini-flash-lite-latest`) when `GEMINI_API_KEY`
+is set, falling back to Google Cloud Speech-to-Text V2 (`chirp_3`) when a project is configured
+(`ROOTCAUSE_SPEECH_PROVIDER` = `auto` | `gemini` | `google`). The transcript is returned in the
+spoken language (never translated; Hindi in Devanagari). The web app sends `language=auto`, adds the
+transcript to the report's `description` and submits the report straight away; it is not stored by
+the API.
 
 `Content-Type: multipart/form-data`
 
 | Field | Type | Required | Rules |
 | --- | --- | --- | --- |
 | `audio` | file | yes | ≤ 5 MB and under 1 minute (Speech-to-Text's synchronous limit; the web app stops at 55 s); WebM/Ogg (Opus), WAV or FLAC by file signature. Speech-to-Text V2 can also decode MP3 and MP4/M4A (AAC), but this API does not accept them yet |
-| `language` | string | yes | One of `ROOTCAUSE_SPEECH_LANGUAGES` (default `en-IN`, `hi-IN`) |
+| `language` | string | yes | `auto` (detect English or Hindi), or one of `ROOTCAUSE_SPEECH_LANGUAGES` (default `en-IN`, `hi-IN`) |
 
-200 response: `{ "transcript": "मेरे टमाटर के पत्ते पीले हो रहे हैं", "language": "hi-IN" }`
+200 response: `{ "transcript": "मेरे टमाटर के पत्ते पीले हो रहे हैं", "language": "hi-IN" }`. With
+`auto`, `language` is the detected code, or `auto` if it is neither English nor Hindi.
 
 | Status | `code` | When |
 | --- | --- | --- |

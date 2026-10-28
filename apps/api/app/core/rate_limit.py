@@ -16,6 +16,16 @@ WINDOW_SECONDS = 3600.0
 _MAX_CLIENTS = 10_000
 
 
+def client_ip(request: Request, trusted_hops: int) -> str | None:
+    """The caller's address; behind `trusted_hops` proxies, read from X-Forwarded-For's end."""
+    if trusted_hops > 0:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        hops = [part.strip() for part in forwarded.split(",") if part.strip()]
+        if len(hops) >= trusted_hops:
+            return hops[-trusted_hops]
+    return request.client.host if request.client else None
+
+
 class RateLimiter:
     def __init__(
         self,
@@ -30,12 +40,7 @@ class RateLimiter:
         self._hits: OrderedDict[str, deque[float]] = OrderedDict()
 
     def client_key(self, request: Request) -> str:
-        if self._hops > 0:
-            forwarded = request.headers.get("x-forwarded-for", "")
-            hops = [part.strip() for part in forwarded.split(",") if part.strip()]
-            if len(hops) >= self._hops:
-                return hops[-self._hops]
-        return request.client.host if request.client else "unknown"
+        return client_ip(request, self._hops) or "unknown"
 
     def check(self, request: Request) -> None:
         key = self.client_key(request)
