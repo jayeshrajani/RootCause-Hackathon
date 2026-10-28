@@ -26,6 +26,19 @@ index load in the background for about 30 s after startup), `ready` or `failed`.
 `satellite_imagery` is `configured` when `GOOGLE_CLOUD_PROJECT_ID` is set (credentials are only
 checked on first use), else `disabled`.
 
+Investigation diagnostics (configuration only; `/health` never calls a paid API and never returns
+keys or prompts):
+
+| Field | Values |
+| --- | --- |
+| `investigation_review` | `configured`, `not_configured` (no `NEBIUS_API_KEY`), `misconfigured` (strict mode without a key), `disabled` |
+| `investigation_provider`, `investigation_model` | `Nebius Token Factory`, the configured Nemotron model id |
+| `investigation_strict` | `true` when `ROOTCAUSE_HACKATHON_REQUIRE_LIVE_NEBIUS` is on |
+| `investigation_last_success_at` | Time of the last successful live Nemotron review in this process, or `null` |
+| `investigation_last_error` | Error kind of the last failed review (`auth_failed`, `rate_limited`, `timeout`, `provider_unavailable`, `bad_request`, `invalid_output`), or `null` |
+| `agronomy_search` | `configured`, `not_configured` (no `TAVILY_API_KEY`), `disabled` |
+| `agronomy_last_success_at` | Time of the last uncached successful Tavily search, or `null` |
+
 ## `POST /satellite/analysis`
 
 `Content-Type: application/json`. Sentinel-2 vegetation evidence from Google Earth Engine
@@ -156,6 +169,9 @@ heuristic fit scores are not probabilities or calibrated disease likelihoods.
 | `generated_at` | datetime | |
 | `data_sources[]` | `DataSource` | Provenance of everything used or attempted |
 | `disclaimer` | string | Must be displayed |
+| `investigation_review` | `InvestigationReview` \| null | NVIDIA Nemotron review of the evidence ledger (optional; absent on older results) |
+| `agronomy_sources[]` | `AgronomySource` | Validated guidance pages from approved publishers; empty when none |
+| `integration_status[]` | `IntegrationStep` | What each provider actually did for this report |
 
 `PossibleCause`
 
@@ -180,7 +196,7 @@ heuristic fit scores are not probabilities or calibrated disease likelihoods.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `id` | string | Stable within a response |
-| `source` | `farmer_report` \| `photo` \| `weather` \| `satellite` \| `knowledge_base` \| `analysis_engine` \| `reference_photos` | |
+| `source` | `farmer_report` \| `photo` \| `weather` \| `satellite` \| `knowledge_base` \| `analysis_engine` \| `reference_photos` \| `investigation_review` | |
 | `availability` | `available` \| `unavailable` \| `not_integrated` | Unavailable ≠ normal |
 | `observation` | string | |
 | `observed_at` | datetime \| null | Real observation time only; null if unknown |
@@ -209,6 +225,73 @@ heuristic fit scores are not probabilities or calibrated disease likelihoods.
 | `description` | string |
 | `retrieved_at` | datetime \| null |
 
+### Investigation review (NVIDIA Nemotron + Tavily)
+
+After the first-stage triage above is complete (photos, weather, satellite, reference photos and
+rule-based scores), AI results go through a second stage inside the same request:
+
+1. **Guidance search (Tavily).** The backend builds a query from the crop and the top one or two
+   `condition_key`s (plus the country name, when the place could be geocoded). Farmer text and
+   coordinates are never sent. Results are limited to an allowlist of research and extension
+   publishers (`app/services/knowledge/sources.py`) and re-validated: HTTPS, approved domain on a
+   dot boundary, crop and condition relevance, pertinent text, deduplicated, excerpts trimmed and
+   stripped of dose/brand sentences. Results are cached for 6 hours.
+2. **Evidence review (NVIDIA Nemotron on Nebius Token Factory).** Nemotron receives the triage as
+   compact structured evidence with backend-issued ids (`E1`… for evidence, `S1`… for sources),
+   never photos or coordinates, and returns JSON under a strict schema.
+3. **Guardrails (deterministic).** Unknown evidence/source ids and causes outside the ranked list
+   are dropped; knowledge claims need a retrieved source; observations that rely only on missing
+   data are dropped; chemical products, doses, brands and spray schedules are removed and replaced
+   by an extension/KVK referral; overconfident wording is removed. `support_status` is set by the
+   backend, never by the model. Every removal is listed in `guardrail_notes`.
+4. **Translation.** For non-English results the review text (not source quotes) is translated by
+   the analysis model; if that fails the review stays in English (`language: "en"`).
+
+The review **never** changes scores, ranking, urgency, recommended actions or
+`requires_expert_review`. Any failure after the first stage returns the original triage with an
+explicit status; the review is never replaced by another model or a mock. The whole second stage
+has a time budget (`ROOTCAUSE_INVESTIGATION_TIMEOUT_SECONDS`, default 55 s).
+
+When guidance is retrieved, the `ev_knowledge` evidence item becomes `available`, the
+`src_knowledge` data source becomes `used`, and the disclaimer says guidance was checked. A
+`src_investigation_review` data source (`kind: investigation_review`) records the review outcome.
+
+`InvestigationReview`
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `status` | `completed` \| `unavailable` \| `not_configured` \| `disabled` \| `skipped` | `skipped` for mock or insufficient-information results; `unavailable` (with `detail`) on provider failure, timeout, daily limit, or strict mode without a key |
+| `provider`, `model` | string | `Nebius Token Factory`, the model id reported by the API |
+| `detail` | string \| null | Why the review is not completed |
+| `generated_at`, `duration_ms`, `usage` | | `usage`: `{ prompt_tokens, completion_tokens, credits }` |
+| `language` | string | Language of the review text |
+| `round` | 1 \| 2 | 2 after a follow-up answer |
+| `grounding` | `sources_and_evidence` \| `internal_evidence_only` \| null | `internal_evidence_only` means official guidance was not verified |
+| `leading_condition_key` | string \| null | Top cause by evidence fit (set by the backend) |
+| `reasoning_summary` | string | 2–4 sentences; no hidden reasoning |
+| `evidence_consistent` | `consistent` \| `mixed` \| `inconsistent` \| `insufficient` \| null | |
+| `supporting_observations[]`, `contradictions[]` | `{ text, evidence_ids[], condition_key }` | `evidence_ids` are ids from `evidence[]` |
+| `unresolved_questions[]`, `limitations[]` | string[] | |
+| `follow_up_question` | `FollowUpQuestion` \| null | `{ id, text, category, discriminates[], why, options[], answer }` |
+| `knowledge_findings[]` | `{ claim, source_ids[], applicability, support_status, verified }` | Only claims with a retrieved source |
+| `safe_next_steps[]` | `{ action, rationale, priority, source_ids[], requires_expert_review, support_status }` | Observational or non-chemical |
+| `source_ids[]` | string[] | Sources cited anywhere in the review |
+| `guardrail_notes[]` | string[] | What the backend removed, and why |
+| `previous_summary`, `what_changed[]` | | Set in round 2 |
+
+`support_status`: `source_backed` (a cited excerpt shares the claim's key terms; a necessary, not
+sufficient, check), `unverified` (a source is cited but the excerpt does not clearly say it),
+`model_suggestion` (no source), `safety_referral` (backend-added extension/KVK referral).
+
+`AgronomySource`: `id` (`S1`…), `title`, `url`, `publisher`, `domain`, `region`,
+`retrieved_at`, `published_at` (ISO date reported by Tavily, never inferred), `excerpt`,
+`crop_relevance`, `condition_relevance`, `condition_keys[]`, `validation_status: "validated"`.
+
+`IntegrationStep`: `step` (`image_analysis`, `weather`, `satellite`, `reference_photos`,
+`deterministic_scoring`, `agronomy_research`, `nemotron_review`, `translation`), `provider`,
+`model`, `status` (`success`, `no_results`, `unavailable`, `failed`, `timeout`, `skipped`,
+`not_requested`, `not_configured`, `disabled`), `duration_ms` (only when timed), `detail`, `usage`.
+
 ### Errors
 
 Every error uses one envelope:
@@ -230,6 +313,7 @@ Every error uses one envelope:
 | 415 | `unsupported_image_type` | File bytes are not JPEG/PNG/WebP |
 | 422 | `validation_error` | Missing or invalid form fields (`details[].field` names the field) |
 | 422 | `images_required` / `too_many_images` / `empty_image` | Photo count or content problems |
+| 429 | `rate_limited` | Too many requests from this client (`ROOTCAUSE_RATE_LIMIT_PER_HOUR`, all model-backed endpoints) |
 | 500 | `internal_error` | Unexpected server failure |
 | 502 | `analysis_unavailable` | The AI provider failed, timed out or returned invalid output (after one retry). Never silently replaced by mock output |
 
@@ -250,6 +334,30 @@ browser tab and always translates from the original result.
 | 422 | `validation_error` | Invalid result or unsupported language |
 | 502 | `translation_unavailable` | The AI provider failed or changed the result's structure (after one retry) |
 | 503 | `translation_unavailable` | AI analysis is not configured (mock mode results are English only) |
+
+The completed `investigation_review` text is translated too (same shape check); source titles and
+excerpts stay verbatim.
+
+## `POST /triage/follow-up`
+
+JSON body: `{ "report_id": "rpt_…", "question_id": "fq_…", "answer": "yes" | "no" | "not_sure" }`.
+Answers the review's `follow_up_question` once. The answer is added to `evidence[]` as
+`ev_follow_up_1` (farmer report). For `yes`/`no`, Nemotron reviews again with the same sources and
+the previous review (`round: 2`, `what_changed[]`); `not_sure` records the answer without a model
+call. No existing scoring rule covers these answers, so **scores, ranking and urgency do not
+change**. Returns the updated `TriageResponse`.
+
+The report context is kept in memory for `ROOTCAUSE_FOLLOW_UP_TTL_SECONDS` (default 1 hour) on the
+instance that produced it.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 409 | `follow_up_already_answered` | The question was already answered (or an answer is in progress) |
+| 410 | `follow_up_expired` | Context expired, restarted or held by another instance |
+| 422 | `invalid_follow_up_question` / `validation_error` | Unknown question id, malformed ids, or answer not in the options |
+| 429 | `rate_limited` / `review_limit_reached` | Client rate limit, or the daily review limit |
+| 502 | `review_unavailable` | Nemotron failed; the answer is not recorded and can be retried |
+| 503 | `review_unavailable` | The review is not configured on this server |
 
 ## `POST /transcribe`
 
@@ -278,5 +386,6 @@ the report's `description` field for the farmer to review and edit; it is not st
 | 504 | `transcription_timeout` | Provider timed out (`ROOTCAUSE_SPEECH_TIMEOUT_SECONDS`) |
 
 Initial browser targets are Chrome desktop and Chrome on Android (WebM/Opus). iOS/Safari (WAV
-fallback) is not yet tested. The endpoint has no authentication or rate limiting yet; abuse
-protection is required before public deployment (see [cloud-readiness.md](cloud-readiness.md)).
+fallback) is not yet tested. The endpoint has no authentication; it shares the per-client hourly
+rate limit of the other model-backed endpoints (`429 rate_limited`). See
+[cloud-readiness.md](cloud-readiness.md) for further abuse protection before wide release.

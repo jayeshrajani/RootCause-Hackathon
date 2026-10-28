@@ -101,3 +101,23 @@ Acceptance criteria
 - Public demo URL works end to end with real analysis.
 - Demo script runs reliably start to finish.
 - README lets a judge understand and run the project.
+
+## Nebius hackathon (October 2026) · Evidence investigation
+
+Timeline and verification guide: [nebius-hackathon-2026.md](nebius-hackathon-2026.md).
+
+| Work | Status |
+| --- | --- |
+| NVIDIA Nemotron 3 Super review via Nebius Token Factory, strict mode | Built, unit-tested; live check pending keys |
+| Tavily guidance search limited to approved publishers, validated and cached | Built, unit-tested; live check pending keys |
+| Deterministic guardrails (ids, citations, chemicals, certainty, expert flag) | Built, unit-tested |
+| Review, Sources and provenance UI; follow-up question | Built, component-tested |
+| Per-client rate limit and daily review cap | Built, unit-tested |
+| Cloud Run deployment (Cloud Build, Secret Manager) | Config written; not deployed yet |
+
+Acceptance criteria
+
+- [ ] A live report calls Nemotron and Tavily and shows both in the provenance section.
+- [x] Scores, ranking and urgency are identical with and without the review (tested).
+- [x] Invented citations and chemical instructions never reach the farmer (tested).
+- [ ] Public demo URL and a video under 3 minutes.
