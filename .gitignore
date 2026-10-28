@@ -1,0 +1,34 @@
+# OS / editor
+.DS_Store
+.idea/
+*.swp
+
+# Environment (only the example is committed)
+.env
+.env.*
+!.env.example
+
+# Reference dataset artifacts; only manifests are versioned
+apps/api/data/*
+!apps/api/data/manifests/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/

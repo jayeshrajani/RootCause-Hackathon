@@ -1,0 +1,79 @@
+[project]
+name = "rootcause-api"
+version = "0.1.0"
+description = "RootCause crop distress triage API"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.4,<3",
+  "python-multipart>=0.0.9",
+  "httpx>=0.27",
+  # Use the OS certificate store so TLS works behind corporate proxies.
+  "truststore>=0.10",
+  "pillow>=11",
+  "numpy>=2.0",
+  # Google Earth Engine (Sentinel-2 vegetation evidence); auth via ADC / service account.
+  "earthengine-api>=1.7",
+  # Application Default Credentials for Speech-to-Text (voice input).
+  "google-auth>=2.30",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
+# Offline dataset preparation only (scripts/prepare_datasets.py).
+datasets = [
+  "py7zr>=0.22",
+]
+# DINOv2 embeddings and FAISS retrieval. Pinned: embeddings must stay reproducible.
+# In Linux containers install torch from https://download.pytorch.org/whl/cpu (CPU-only build).
+retrieval = [
+  "torch==2.14.1",
+  "transformers==5.19.0",
+  "safetensors>=0.4",
+  "faiss-cpu==1.15.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Form"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+# Optional ML extras: typed as Any so CI (without them) and local runs check identically.
+[[tool.mypy.overrides]]
+module = ["torch", "torch.*", "transformers", "transformers.*", "faiss", "faiss.*", "safetensors", "safetensors.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
+ignore_missing_imports = true
+
+# The Earth Engine SDK ships without type information.
+[[tool.mypy.overrides]]
+module = ["ee", "ee.*"]
+ignore_missing_imports = true
