@@ -24,6 +24,7 @@ from app.integrations.tavily import (
     TavilyExtractResponse,
     TavilyResult,
     TavilySearchResponse,
+    TavilyUsage,
 )
 from app.schemas.investigation import AgronomySource
 from app.services.knowledge.safety import looks_like_instructions, safe_excerpt
@@ -244,6 +245,30 @@ class AgronomyResearchService:
             self._cache.put(cache_key, result)
         return result
 
+    async def _search(
+        self, query: str, domains: list[str], country: str | None
+    ) -> TavilySearchResponse:
+        assert self._searcher is not None
+        searcher = self._searcher
+
+        async def search(country_hint: str | None) -> TavilySearchResponse:
+            return await searcher.search(
+                query=query,
+                include_domains=domains,
+                max_results=self._max_results,
+                search_depth=self._depth,
+                country=country_hint,
+                timeout_seconds=self._timeout,
+            )
+
+        response = await search(country)
+        if response.results or country is None:
+            return response
+        # A country boost over the allowlist can return nothing (seen for India); retry worldwide.
+        worldwide = await search(None)
+        spent = sum((r.usage.credits or 0.0) for r in (response, worldwide) if r.usage)
+        return worldwide.model_copy(update={"usage": TavilyUsage(credits=spent)})
+
     async def _run(
         self, crop: str, keys: list[str], country: str | None, deadline: float
     ) -> AgronomyResearch:
@@ -251,17 +276,7 @@ class AgronomyResearchService:
         queries = [q for q in (build_query(crop, key) for key in keys) if q]
         domains = [source.domain for source in self._sources]
         outcomes = await asyncio.gather(
-            *(
-                self._searcher.search(
-                    query=query,
-                    include_domains=domains,
-                    max_results=self._max_results,
-                    search_depth=self._depth,
-                    country=country,
-                    timeout_seconds=self._timeout,
-                )
-                for query in queries
-            ),
+            *(self._search(query, domains, country) for query in queries),
             return_exceptions=True,
         )
         errors = [o for o in outcomes if isinstance(o, BaseException)]

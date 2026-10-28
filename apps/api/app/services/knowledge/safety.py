@@ -60,6 +60,14 @@ _INSTRUCTION_LIKE = re.compile(
     re.IGNORECASE,
 )
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_SITE_CHROME = re.compile(
+    r"\b(cookies? (?:are|is) disabled|uses? cookies|accept (?:all )?cookies|"
+    r"skip to (?:main )?content|shopping cart|javascript (?:is )?(?:disabled|required)|"
+    r"sign in to|log in to)\b",
+    re.IGNORECASE,
+)
+# Breadcrumb items split at their numbers: "Home 2.", "Vegetable farming 5."
+_BREADCRUMB = re.compile(r"^[A-Za-z][\w &,'/-]{0,48}\s\d{1,2}\.$")
 
 
 def is_chemical_instruction(text: str) -> bool:
@@ -99,13 +107,15 @@ def clean_markup(text: str) -> str:
 
 
 def safe_excerpt(text: str, limit: int = 600) -> str:
-    """Clean page text, drop chemical/dose and instruction-like sentences, trim at a sentence."""
+    """Clean page text, drop chemical/dose, instruction-like and site-chrome sentences, trim."""
     kept = [
         sentence
         for sentence in _SENTENCE_SPLIT.split(clean_markup(text))
         if sentence
         and not is_chemical_instruction(sentence)
         and not looks_like_instructions(sentence)
+        and not _SITE_CHROME.search(sentence)
+        and not _BREADCRUMB.match(sentence)
     ]
     excerpt = ""
     for sentence in kept:

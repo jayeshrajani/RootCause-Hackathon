@@ -10,8 +10,10 @@ from app.integrations.tavily import (
     TavilyErrorKind,
     TavilyExtractResponse,
     TavilyExtractResult,
+    TavilySearchResponse,
 )
 from app.services.knowledge.agronomy import ResearchStatus, build_query, published_date, safe_url
+from app.services.knowledge.safety import safe_excerpt
 from app.services.knowledge.sources import APPROVED_SOURCES, approved_sources
 from tests.investigation_helpers import FakeSearcher, research_service, tavily_result
 
@@ -302,3 +304,46 @@ async def test_unknown_country_is_not_sent() -> None:
     await research(searcher, country="Atlantis")
 
     assert searcher.searches[0]["country"] is None
+
+
+class EmptyForCountrySearcher(FakeSearcher):
+    async def search(self, **kwargs: Any) -> TavilySearchResponse:
+        response = await super().search(**kwargs)
+        return response.model_copy(update={"results": []}) if kwargs["country"] else response
+
+
+async def test_empty_country_search_is_retried_worldwide() -> None:
+    searcher = EmptyForCountrySearcher([tavily_result(TNAU)])
+
+    result = await research(searcher, country="India")
+
+    assert [s["country"] for s in searcher.searches] == ["india", None]
+    assert result.status == ResearchStatus.AVAILABLE and len(result.sources) == 1
+    assert result.credits == 2
+
+
+async def test_country_search_with_results_is_not_repeated() -> None:
+    searcher = FakeSearcher([tavily_result(TNAU)])
+
+    await research(searcher, country="India")
+
+    assert [s["country"] for s in searcher.searches] == ["india"]
+
+
+def test_site_chrome_is_dropped_from_excerpts() -> None:
+    page = (
+        "The store will not work correctly when cookies are disabled. Skip to Content Penn State "
+        "Extension Search Cart Shopping Cart Articles. Late blight causes dark, water-soaked "
+        "lesions on tomato leaves."
+    )
+
+    assert safe_excerpt(page) == "Late blight causes dark, water-soaked lesions on tomato leaves."
+
+
+def test_breadcrumbs_are_dropped_from_excerpts() -> None:
+    page = (
+        "Home 2. Agriculture 3. Vegetable farming 4. Disease and insect management 5. Early "
+        "blight first appears on older leaves as brown spots with rings."
+    )
+
+    assert safe_excerpt(page).startswith("Early blight first appears")
