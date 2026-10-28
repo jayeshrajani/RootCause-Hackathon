@@ -1,0 +1,98 @@
+# Build both images and deploy them to Cloud Run. One-time setup and usage: deploy/README.md.
+#
+#   gcloud builds submit --config deploy/cloudbuild.yaml \
+#     --substitutions=_API_URL=<api-url>,_WEB_URL=<web-url>
+#
+# Keys come from Secret Manager (cerebras-api-key, nebius-api-key, tavily-api-key), never from
+# this file, the images or the repository.
+
+substitutions:
+  _REGION: asia-south1
+  _REPO: rootcause
+  _API_SERVICE: rootcause-api
+  _WEB_SERVICE: rootcause-web
+  _SERVICE_ACCOUNT_NAME: rootcause
+  # Public URLs, known after the first deploy. Empty on the first run.
+  _API_URL: ""
+  _WEB_URL: ""
+  # Optional Earth Engine project for satellite evidence; empty disables it.
+  _GOOGLE_CLOUD_PROJECT_ID: ""
+  _RATE_LIMIT_PER_HOUR: "40"
+  _INVESTIGATION_DAILY_LIMIT: "300"
+
+options:
+  dynamicSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:$BUILD_ID
+      - apps/api
+
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["-"]
+    args:
+      - build
+      - --build-arg
+      - NEXT_PUBLIC_API_BASE_URL=${_API_URL}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/web:$BUILD_ID
+      - apps/web
+
+  - id: push-api
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build-api]
+    args: [push, "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:$BUILD_ID"]
+
+  - id: push-web
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build-web]
+    args: [push, "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/web:$BUILD_ID"]
+
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [push-api]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_API_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:$BUILD_ID
+      - --region=${_REGION}
+      - --service-account=${_SERVICE_ACCOUNT_NAME}@$PROJECT_ID.iam.gserviceaccount.com
+      - --allow-unauthenticated
+      - --port=8080
+      - --cpu=1
+      - --memory=1Gi
+      - --concurrency=20
+      - --max-instances=2
+      - --timeout=180
+      # Follow-up answers are kept in memory; affinity routes a browser back to its instance.
+      - --session-affinity
+      - --set-secrets=CEREBRAS_API_KEY=cerebras-api-key:latest,NEBIUS_API_KEY=nebius-api-key:latest,TAVILY_API_KEY=tavily-api-key:latest
+      - >-
+        --set-env-vars=^@^ROOTCAUSE_ENVIRONMENT=production@ROOTCAUSE_CORS_ORIGINS=["${_WEB_URL}"]@ROOTCAUSE_HACKATHON_REQUIRE_LIVE_NEBIUS=true@ROOTCAUSE_TRUSTED_PROXY_HOPS=1@ROOTCAUSE_RATE_LIMIT_PER_HOUR=${_RATE_LIMIT_PER_HOUR}@ROOTCAUSE_INVESTIGATION_DAILY_LIMIT=${_INVESTIGATION_DAILY_LIMIT}@GOOGLE_CLOUD_PROJECT_ID=${_GOOGLE_CLOUD_PROJECT_ID}
+
+  - id: deploy-web
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [push-web]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_WEB_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/web:$BUILD_ID
+      - --region=${_REGION}
+      - --allow-unauthenticated
+      - --port=8080
+      - --memory=512Mi
+      - --max-instances=2
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:$BUILD_ID
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/web:$BUILD_ID

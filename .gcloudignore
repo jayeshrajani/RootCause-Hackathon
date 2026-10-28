@@ -1,0 +1,8 @@
+# Files never uploaded to Cloud Build (`gcloud builds submit`). Secrets stay in Secret Manager.
+#!include:.gitignore
+.git/
+.github/
+docs/
+nvidiaHK.txt
+apps/api/tests/
+apps/api/scripts/
