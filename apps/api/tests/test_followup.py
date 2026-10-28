@@ -120,6 +120,25 @@ async def test_failed_re_review_can_be_retried() -> None:
     assert context is not None and not context.answered and not context.in_progress
 
 
+async def test_follow_up_uses_the_fast_reviewer_when_configured() -> None:
+    main_sent: list[dict[str, Any]] = []
+    fast_sent: list[dict[str, Any]] = []
+    main = nebius_client(nebius_completion(json.dumps(review_output())), sent=main_sent)
+    fast = nebius_client(
+        nebius_completion(json.dumps(SECOND_ROUND), model="nvidia/nemotron-fast"),
+        sent=fast_sent,
+        model="nvidia/nemotron-fast",
+    )
+    rt = runtime(main, FakeSearcher([tavily_result(TNAU)]), follow_up_client=fast)
+    await InvestigatingTriageService(StubTriage(base_triage()), rt).assess(REPORT)
+
+    updated = await FollowUpService(rt).answer(request(FollowUpAnswer.YES))
+
+    assert (len(main_sent), len(fast_sent)) == (1, 1)
+    review = updated.investigation_review
+    assert review is not None and review.model == "nvidia/nemotron-fast" and review.round == 2
+
+
 def test_follow_up_route_validates_input_and_answers() -> None:
     settings = Settings(analysis_provider="mock", _env_file=None)
     app = create_app(settings)

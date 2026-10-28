@@ -85,6 +85,46 @@ def _retry_after(response: httpx.Response) -> float | None:
         return None
 
 
+class FallbackNebiusClient:
+    """One Nemotron model, then another when the first fails for any reason but a bad key."""
+
+    def __init__(
+        self, primary: "NebiusClient", fallback: "NebiusClient", *, min_seconds: float = 10.0
+    ) -> None:
+        self.model = primary.model
+        self.provider = primary.provider
+        self._primary = primary
+        self._fallback = fallback
+        self._min_seconds = min_seconds
+
+    async def structured_completion(
+        self,
+        *,
+        system: str,
+        user: str,
+        schema_name: str,
+        schema: dict[str, Any],
+        deadline: float | None = None,
+    ) -> NebiusCompletion:
+        try:
+            return await self._primary.structured_completion(
+                system=system, user=user, schema_name=schema_name, schema=schema, deadline=deadline
+            )
+        except NebiusError as exc:
+            left = None if deadline is None else deadline - time.monotonic()
+            if exc.kind == NebiusErrorKind.AUTH or (left is not None and left < self._min_seconds):
+                raise
+            logger.warning(
+                "Nemotron model %s failed (%s); trying %s",
+                self._primary.model,
+                exc.kind.value,
+                self._fallback.model,
+            )
+            return await self._fallback.structured_completion(
+                system=system, user=user, schema_name=schema_name, schema=schema, deadline=deadline
+            )
+
+
 class NebiusClient:
     def __init__(
         self,

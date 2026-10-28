@@ -13,7 +13,7 @@ from app.core.logging import configure_logging
 from app.core.middleware import RequestSizeLimitMiddleware
 from app.core.rate_limit import RateLimiter
 from app.integrations.earth_engine import EarthEngineClient
-from app.integrations.nebius import NebiusClient
+from app.integrations.nebius import FallbackNebiusClient, NebiusClient
 from app.integrations.open_meteo import OpenMeteoClient
 from app.integrations.tavily import TavilyClient
 from app.services.investigation.nemotron_review import NemotronReviewer
@@ -49,6 +49,35 @@ def build_satellite_service(settings: Settings) -> SatelliteService:
     )
 
 
+def build_reviewers(settings: Settings) -> tuple[NemotronReviewer | None, NemotronReviewer | None]:
+    """The main reviewer and the follow-up reviewer; each falls back to the other's model."""
+    if not settings.nebius_configured or settings.nebius_api_key is None:
+        return None, None
+    api_key = settings.nebius_api_key.get_secret_value()
+
+    def client(model: str) -> NebiusClient:
+        return NebiusClient(
+            api_key=api_key,
+            model=model,
+            base_url=settings.nebius_base_url,
+            timeout_seconds=settings.nebius_timeout_seconds,
+            max_retries=settings.nebius_max_retries,
+            reasoning=settings.nebius_reasoning,
+            structured_output=settings.nebius_structured_output,
+            max_tokens=settings.nebius_max_tokens,
+        )
+
+    main = client(settings.nebius_model)
+    fast_model = (settings.nebius_fast_model or "").strip()
+    if not fast_model or fast_model == settings.nebius_model:
+        return NemotronReviewer(main), None
+    fast = client(fast_model)
+    return (
+        NemotronReviewer(FallbackNebiusClient(main, fast)),
+        NemotronReviewer(FallbackNebiusClient(fast, main)),
+    )
+
+
 def build_investigation_runtime(settings: Settings) -> InvestigationRuntime:
     tavily = (
         TavilyClient(
@@ -58,22 +87,7 @@ def build_investigation_runtime(settings: Settings) -> InvestigationRuntime:
         if settings.tavily_configured and settings.tavily_api_key is not None
         else None
     )
-    reviewer = (
-        NemotronReviewer(
-            NebiusClient(
-                api_key=settings.nebius_api_key.get_secret_value(),
-                model=settings.nebius_model,
-                base_url=settings.nebius_base_url,
-                timeout_seconds=settings.nebius_timeout_seconds,
-                max_retries=settings.nebius_max_retries,
-                reasoning=settings.nebius_reasoning,
-                structured_output=settings.nebius_structured_output,
-                max_tokens=settings.nebius_max_tokens,
-            )
-        )
-        if settings.nebius_configured and settings.nebius_api_key is not None
-        else None
-    )
+    reviewer, follow_up_reviewer = build_reviewers(settings)
     if settings.hackathon_require_live_nebius and reviewer is None:
         logger.error(
             "Strict mode is on but the Nemotron review is not configured (NEBIUS_API_KEY); "
@@ -97,6 +111,7 @@ def build_investigation_runtime(settings: Settings) -> InvestigationRuntime:
             cache_ttl_seconds=settings.tavily_cache_ttl_seconds,
         ),
         reviewer=reviewer,
+        follow_up_reviewer=follow_up_reviewer,
         store=InvestigationStore(
             ttl_seconds=settings.follow_up_ttl_seconds,
             max_entries=settings.follow_up_max_reports,

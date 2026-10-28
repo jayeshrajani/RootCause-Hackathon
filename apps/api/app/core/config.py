@@ -122,7 +122,10 @@ class Settings(BaseSettings):
     )
     nebius_enabled: bool = True
     nebius_base_url: str = "https://api.tokenfactory.us-central1.nebius.com/v1/"
-    nebius_model: str = "nvidia/nemotron-3-super-120b-a12b"
+    nebius_model: str = "nvidia/Nemotron-3-Ultra-550b-a55b"
+    # Quicker model for follow-up re-reviews and the fallback when the main model fails; empty
+    # uses the main model only.
+    nebius_fast_model: str | None = "nvidia/nemotron-3-super-120b-a12b"
     nebius_timeout_seconds: float = Field(default=30, gt=0, le=120)
     nebius_max_retries: int = Field(default=1, ge=0, le=3)
     # "default" sends no reasoning switch, for endpoints that reject chat_template_kwargs.

@@ -131,7 +131,7 @@ class FollowUpService:
         context: InvestigationContext,
     ) -> InvestigationReview:
         runtime = self._runtime
-        reviewer = runtime.reviewer
+        reviewer = runtime.follow_up_reviewer or runtime.reviewer
         if reviewer is None:
             raise AppError(
                 503, "review_unavailable", "The NVIDIA review is not available on this server."

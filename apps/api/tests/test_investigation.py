@@ -61,6 +61,7 @@ def runtime(
     enabled: bool = True,
     daily_limit: int = 10,
     timeout: float = 30,
+    follow_up_client: Any = None,
 ) -> InvestigationRuntime:
     return InvestigationRuntime(
         config=InvestigationConfig(
@@ -75,6 +76,9 @@ def runtime(
         else None,
         store=InvestigationStore(ttl_seconds=600, max_entries=10),
         tracker=InvestigationTracker(daily_limit=daily_limit),
+        follow_up_reviewer=NemotronReviewer(follow_up_client, question_id=lambda: "fq_000000000002")
+        if follow_up_client is not None
+        else None,
     )
 
 

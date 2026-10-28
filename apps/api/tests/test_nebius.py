@@ -5,7 +5,12 @@ from typing import Any
 import httpx
 import pytest
 
-from app.integrations.nebius import NebiusError, NebiusErrorKind, extract_json_text
+from app.integrations.nebius import (
+    FallbackNebiusClient,
+    NebiusError,
+    NebiusErrorKind,
+    extract_json_text,
+)
 from tests.investigation_helpers import nebius_client, nebius_completion
 
 pytestmark = pytest.mark.anyio
@@ -153,3 +158,30 @@ async def test_available_models_lists_catalog_ids() -> None:
     )
 
     assert await client.available_models() == ["nvidia/nemotron-test", "other"]
+
+
+async def test_fallback_model_answers_when_the_main_model_fails() -> None:
+    main = nebius_client(httpx.Response(400), model="nvidia/ultra")
+    fast = nebius_client(
+        nebius_completion('{"ok": true}', model="nvidia/super"), model="nvidia/super"
+    )
+
+    result = await call(FallbackNebiusClient(main, fast), deadline=time.monotonic() + 60)
+
+    assert result.model == "nvidia/super" and json.loads(result.content) == {"ok": True}
+
+
+@pytest.mark.parametrize(
+    ("failure", "seconds_left"),
+    [(httpx.Response(401), 60.0), (httpx.Response(400), 5.0)],
+)
+async def test_no_fallback_on_a_bad_key_or_when_time_is_nearly_up(
+    failure: httpx.Response, seconds_left: float
+) -> None:
+    sent: list[dict[str, Any]] = []
+    fallback = FallbackNebiusClient(nebius_client(failure), nebius_client(sent=sent))
+
+    with pytest.raises(NebiusError):
+        await call(fallback, deadline=time.monotonic() + seconds_left)
+
+    assert sent == []

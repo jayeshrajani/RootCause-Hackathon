@@ -108,6 +108,8 @@ class InvestigationRuntime:
     reviewer: NemotronReviewer | None
     store: InvestigationStore
     tracker: InvestigationTracker
+    # Answers to follow-up questions; None reuses `reviewer`.
+    follow_up_reviewer: NemotronReviewer | None = None
 
     @property
     def review_state(self) -> ReviewState:
