@@ -97,6 +97,12 @@ export const STEP_STATUS_DISPLAY: Record<IntegrationStatus, { key: TranslationKe
   disabled: { key: "statusDisabled", dot: "bg-forest-900/20" },
 };
 
+/** "nvidia/Nemotron-3-Ultra-550b-a55b" -> "Nemotron 3 Ultra"; other ids fall back to "Nemotron". */
+export function nemotronName(model: string | null | undefined): string {
+  const tier = model?.match(/nemotron-3-(ultra|super|nano)/i)?.[1];
+  return tier ? `Nemotron 3 ${tier.charAt(0).toUpperCase()}${tier.slice(1).toLowerCase()}` : "Nemotron";
+}
+
 /** External links only for HTTPS URLs (the API already validates them; this is defence in depth). */
 export function safeHref(url: string): string | null {
   try {

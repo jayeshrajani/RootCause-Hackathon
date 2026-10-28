@@ -302,6 +302,7 @@ sufficient, check), `unverified` (a source is cited but the excerpt does not cle
 `deterministic_scoring`, `agronomy_research`, `nemotron_review`, `translation`), `provider`,
 `model`, `status` (`success`, `no_results`, `unavailable`, `failed`, `timeout`, `skipped`,
 `not_requested`, `not_configured`, `disabled`), `duration_ms` (only when timed), `detail`, `usage`.
+`reference_photos` appears only when reference photos were actually used.
 
 ### Errors
 

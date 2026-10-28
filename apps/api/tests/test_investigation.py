@@ -132,7 +132,7 @@ async def test_full_investigation_enriches_without_changing_the_triage() -> None
     )
     assert trace["weather"].status == "unavailable"
     assert trace["satellite"].status == "not_configured"
-    assert trace["reference_photos"].status == "disabled"
+    assert "reference_photos" not in trace
     assert trace["deterministic_scoring"].status == "success"
     assert trace["agronomy_research"].status == "success"
     assert trace["nemotron_review"].status == "success"

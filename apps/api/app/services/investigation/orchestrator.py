@@ -195,23 +195,15 @@ def first_stage_steps(
         )
 
     references = _source(result, "src_references")
-    ref_status = (
-        IntegrationStatus.DISABLED
-        if references is None or references.status == DataSourceStatus.NOT_INTEGRATED
-        else IntegrationStatus.SUCCESS
-        if references.status == DataSourceStatus.USED
-        else IntegrationStatus.UNAVAILABLE
-    )
-    steps.append(
-        _step(
-            IntegrationStepName.REFERENCE_PHOTOS,
-            "DINOv2 + FAISS reference photos",
-            ref_status,
-            None
-            if ref_status == IntegrationStatus.SUCCESS or references is None
-            else references.description,
+    # Only listed when photos were matched; the deployed image ships without the reference index.
+    if references is not None and references.status == DataSourceStatus.USED:
+        steps.append(
+            _step(
+                IntegrationStepName.REFERENCE_PHOTOS,
+                "DINOv2 + FAISS reference photos",
+                IntegrationStatus.SUCCESS,
+            )
         )
-    )
 
     scored = ai and bool(result.possible_causes)
     steps.append(

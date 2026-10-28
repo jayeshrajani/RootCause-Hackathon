@@ -6,8 +6,10 @@ import { cn } from "@/lib/utils";
 import type { IntegrationStep } from "@/types/triage";
 
 /** Which providers actually ran for this report, with their real outcome. */
-export function EvidenceProvenance({ steps }: { steps: IntegrationStep[] }) {
+export function EvidenceProvenance({ steps: allSteps }: { steps: IntegrationStep[] }) {
   const { t } = useI18n();
+  // Results stored before this change may still carry an unused reference-photos step.
+  const steps = allSteps.filter((step) => step.step !== "reference_photos" || step.status === "success");
   if (!steps.length) return null;
 
   return (

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgronomySources } from "@/components/triage/agronomy-sources";
+import { nemotronName } from "@/components/triage/display";
 import { EvidenceProvenance } from "@/components/triage/evidence-provenance";
 import { InvestigationReviewPanel } from "@/components/triage/investigation-review";
 import { TriageResult } from "@/components/triage/triage-result";
@@ -285,6 +286,23 @@ describe("EvidenceProvenance", () => {
     expect(within(list).getByText("Done")).toBeTruthy();
     expect(within(list).getByText("Not requested")).toBeTruthy();
     expect(within(list).getByText("8.4 s")).toBeTruthy();
+  });
+
+  it("hides reference photos unless they were used", () => {
+    const unused = { step: "reference_photos" as const, provider: "DINOv2 + FAISS reference photos", model: null, status: "unavailable" as const, duration_ms: null, detail: null, usage: null };
+
+    renderWithI18n(<EvidenceProvenance steps={[...(result().integration_status ?? []), unused]} />);
+
+    expect(screen.queryByText(/DINOv2/)).toBeNull();
+  });
+});
+
+describe("nemotronName", () => {
+  it("shortens catalog ids whatever their casing", () => {
+    expect(nemotronName("nvidia/Nemotron-3-Ultra-550b-a55b")).toBe("Nemotron 3 Ultra");
+    expect(nemotronName("nvidia/nemotron-3-super-120b-a12b")).toBe("Nemotron 3 Super");
+    expect(nemotronName("nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B")).toBe("Nemotron 3 Nano");
+    expect(nemotronName(undefined)).toBe("Nemotron");
   });
 });
 

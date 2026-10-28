@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Camera, ChevronDown, FlaskConical, MapPin, MessageSquareText, Sparkles, type LucideIcon } from "lucide-react";
 
 import { BotanicalPattern } from "@/components/brand/botanical";
-import { CONFIDENCE_DISPLAY, DATA_SOURCE_STATUS_DISPLAY, formatTimestamp, URGENCY_DISPLAY } from "@/components/triage/display";
+import { CONFIDENCE_DISPLAY, DATA_SOURCE_STATUS_DISPLAY, formatTimestamp, nemotronName, URGENCY_DISPLAY } from "@/components/triage/display";
 import { ConfidenceMeter } from "@/components/triage/possible-causes";
 import { ReadAloud, readAloudScript } from "@/components/triage/read-aloud";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,10 @@ const ADVICE_KEYS: Record<TriageResponse["urgency"], TranslationKey> = {
 const CONFIDENCE_KEYS: Record<TriageResponse["possible_causes"][number]["confidence"], TranslationKey> = {
   low: "confidenceLow", medium: "confidenceMedium", high: "confidenceHigh",
 };
+// The NVIDIA review and guidance search lead; reference photos are not part of this deployment.
+const SOURCE_ORDER: SourceKind[] = [
+  "investigation_review", "knowledge_base", "farmer_report", "photo", "analysis_engine", "weather", "satellite",
+];
 
 function cropHeading(result: TriageResponse, t: (key: TranslationKey) => string) {
   if (result.crop) return { name: t(CROP_KEYS[result.crop]) };
@@ -86,7 +90,21 @@ export function SummaryCard({ result }: { result: TriageResponse }) {
   const shownObservations = showAllObs ? observations : observations.slice(0, VISIBLE_OBSERVATIONS);
   const farmer = result.evidence.find((item) => item.source === "farmer_report");
   const farmerText = farmer ? farmerWords(farmer.observation) : null;
-  const notChecked = result.evidence.filter((item) => item.availability !== "available");
+  const notChecked = result.evidence.filter((item) => item.availability !== "available" && item.source !== "reference_photos");
+  const review = result.investigation_review?.status === "completed" ? result.investigation_review : null;
+  const usedTavily = result.data_sources.some((source) => source.kind === "knowledge_base" && source.status === "used");
+  const investigatedBy = review ? [`NVIDIA ${nemotronName(review.model)}`, "Nebius", ...(usedTavily ? ["Tavily"] : [])].join(" · ") : null;
+  const sources = result.data_sources
+    .filter((source) => SOURCE_ORDER.includes(source.kind))
+    .sort((a, b) => SOURCE_ORDER.indexOf(a.kind) - SOURCE_ORDER.indexOf(b.kind));
+  const sourceLabel = (source: TriageResponse["data_sources"][number]) =>
+    source.kind === "investigation_review"
+      ? `NVIDIA ${nemotronName(review?.model ?? source.name)} · Nebius Token Factory`
+      : source.kind === "knowledge_base" && source.name.includes("Tavily")
+        ? `${t("sourceGuidance")} · Tavily`
+        : source.kind === "analysis_engine"
+          ? source.name
+          : t(SOURCE_KEYS[source.kind]);
   const hasLocation = Boolean(result.location_label || result.approximate_location);
   const script = readAloudScript({
     heading: top ? `${crop.name}: ${disease}.` : `${crop.name}.`,
@@ -131,15 +149,15 @@ export function SummaryCard({ result }: { result: TriageResponse }) {
 
         <div className="border-t border-mint-100/10 pt-4 text-xs leading-relaxed text-mint-200/60">
           <button type="button" onClick={() => setShowMore((value) => !value)} aria-expanded={showMore} className="flex w-full items-center gap-2 text-left">
-            {isMock ? <FlaskConical className="size-3.5 shrink-0 text-clay-400" aria-hidden /> : <Sparkles className="size-3.5 shrink-0" aria-hidden />}
-            <span className="flex-1"><span className={cn("font-medium", isMock ? "text-clay-400" : "text-mint-200/85")}>{isMock ? t("mockResult") : `${t("aiTriage")}${engine ? ` · ${engine}` : ""}`}</span> · {t("notDiagnosis")}</span>
+            {isMock ? <FlaskConical className="size-3.5 shrink-0 text-clay-400" aria-hidden /> : investigatedBy ? <span className="size-2 shrink-0 rounded-full bg-nvidia shadow-[0_0_0_3px_rgba(118,185,0,0.2)]" aria-hidden /> : <Sparkles className="size-3.5 shrink-0" aria-hidden />}
+            <span className="flex-1"><span className={cn("font-medium", isMock ? "text-clay-400" : "text-mint-200/85")}>{isMock ? t("mockResult") : investigatedBy ? `${t("heroInvestigatedWith")} ${investigatedBy}` : `${t("aiTriage")}${engine ? ` · ${engine}` : ""}`}</span> · {t("notDiagnosis")}</span>
             <motion.span animate={{ rotate: showMore ? 180 : 0 }} aria-hidden><ChevronDown className="size-3.5" /></motion.span>
           </button>
           <AnimatePresence initial={false}>{showMore ? <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden"><div className="space-y-3 pt-3">
             <p className="font-mono text-[11px]">{result.report_id} · <time dateTime={result.generated_at}>{formatTimestamp(result.generated_at)}</time></p>
             <p>{t("footerDisclaimer")}</p>
             {notChecked.length ? <p>{t("notCheckedYet")} {notChecked.map((item) => t(SOURCE_KEYS[item.source])).join(" · ")}. {t("missingNotNormal")}</p> : null}
-            <ul className="space-y-1">{result.data_sources.map((source) => <li key={source.id} className="flex items-center justify-between gap-3"><span className="truncate">{source.kind === "analysis_engine" || source.kind === "investigation_review" ? source.name : t(SOURCE_KEYS[source.kind])}</span><span className="flex shrink-0 items-center gap-1.5"><span className={cn("size-1.5 rounded-full", DATA_SOURCE_STATUS_DISPLAY[source.status].dot)} aria-hidden />{t(STATUS_KEYS[source.status])}</span></li>)}</ul>
+            <ul className="space-y-1">{sources.map((source) => <li key={source.id} className="flex items-center justify-between gap-3"><span className="truncate">{sourceLabel(source)}</span><span className="flex shrink-0 items-center gap-1.5"><span className={cn("size-1.5 rounded-full", DATA_SOURCE_STATUS_DISPLAY[source.status].dot)} aria-hidden />{t(STATUS_KEYS[source.status])}</span></li>)}</ul>
           </div></motion.div> : null}</AnimatePresence>
         </div>
       </div>
