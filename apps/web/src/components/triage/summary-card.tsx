@@ -23,7 +23,7 @@ const CROP_KEYS: Record<Crop, TranslationKey> = {
 const SOURCE_KEYS: Record<SourceKind, TranslationKey> = {
   farmer_report: "sourceYourReport", photo: "sourcePhotos", weather: "sourceWeather",
   satellite: "sourceSatellite", knowledge_base: "sourceGuidance", analysis_engine: "sourceEngine",
-  reference_photos: "sourceReferences",
+  reference_photos: "sourceReferences", investigation_review: "sourceReview",
 };
 const STATUS_KEYS: Record<string, TranslationKey> = {
   used: "sourceUsed", unavailable: "sourceUnavailable", not_integrated: "sourceNotConnected",
@@ -128,7 +128,7 @@ export function SummaryCard({ result }: { result: TriageResponse }) {
             <p className="font-mono text-[11px]">{result.report_id} · <time dateTime={result.generated_at}>{formatTimestamp(result.generated_at)}</time></p>
             <p>{t("footerDisclaimer")}</p>
             {notChecked.length ? <p>{t("notCheckedYet")} {notChecked.map((item) => t(SOURCE_KEYS[item.source])).join(" · ")}. {t("missingNotNormal")}</p> : null}
-            <ul className="space-y-1">{result.data_sources.map((source) => <li key={source.id} className="flex items-center justify-between gap-3"><span className="truncate">{source.kind === "analysis_engine" ? source.name : t(SOURCE_KEYS[source.kind])}</span><span className="flex shrink-0 items-center gap-1.5"><span className={cn("size-1.5 rounded-full", DATA_SOURCE_STATUS_DISPLAY[source.status].dot)} aria-hidden />{t(STATUS_KEYS[source.status])}</span></li>)}</ul>
+            <ul className="space-y-1">{result.data_sources.map((source) => <li key={source.id} className="flex items-center justify-between gap-3"><span className="truncate">{source.kind === "analysis_engine" || source.kind === "investigation_review" ? source.name : t(SOURCE_KEYS[source.kind])}</span><span className="flex shrink-0 items-center gap-1.5"><span className={cn("size-1.5 rounded-full", DATA_SOURCE_STATUS_DISPLAY[source.status].dot)} aria-hidden />{t(STATUS_KEYS[source.status])}</span></li>)}</ul>
           </div></motion.div> : null}</AnimatePresence>
         </div>
       </div>

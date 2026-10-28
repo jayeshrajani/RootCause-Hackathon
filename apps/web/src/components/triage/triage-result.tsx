@@ -3,16 +3,32 @@ import { Camera } from "lucide-react";
 import { PillLink } from "@/components/brand/pill";
 import { Reveal } from "@/components/motion/reveal";
 import { ActionList } from "@/components/triage/action-list";
+import { AgronomySources } from "@/components/triage/agronomy-sources";
 import { CropCheck } from "@/components/triage/crop-check";
+import { EvidenceProvenance } from "@/components/triage/evidence-provenance";
 import { FieldConditions } from "@/components/triage/field-conditions";
+import { InvestigationReviewPanel } from "@/components/triage/investigation-review";
 import { PossibleCauses } from "@/components/triage/possible-causes";
-import { ResultTabs } from "@/components/triage/result-tabs";
+import { ResultTabs, type ResultTab } from "@/components/triage/result-tabs";
 import { SummaryCard } from "@/components/triage/summary-card";
 import type { TriageResponse } from "@/types/triage";
 import { useI18n } from "@/lib/i18n";
 
 export function TriageResult({ result }: { result: TriageResponse }) {
   const { t } = useI18n();
+  const sources = result.agronomy_sources ?? [];
+  // Older stored results have no review; their tabs stay exactly as before.
+  const investigationTabs: ResultTab[] = result.investigation_review
+    ? [
+        { id: "review", label: t("tabReview"), content: <InvestigationReviewPanel result={result} /> },
+        {
+          id: "sources",
+          label: t("tabSources"),
+          count: sources.length,
+          content: <AgronomySources result={result} />,
+        },
+      ]
+    : [];
   return (
     <div className="mx-auto w-full max-w-6xl px-5 pt-6 pb-12 sm:pt-10">
       <div className="grid gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-10">
@@ -50,8 +66,11 @@ export function TriageResult({ result }: { result: TriageResponse }) {
                 count: result.recommended_actions.length,
                 content: <ActionList actions={result.recommended_actions} />,
               },
+              ...investigationTabs,
             ]}
           />
+
+          <EvidenceProvenance steps={result.integration_status ?? []} />
 
           <div className="mt-8 flex flex-col items-start gap-3 border-t border-forest-900/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
             <p className="font-medium">{t("seenSomethingNew")}</p>

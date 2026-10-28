@@ -12,13 +12,23 @@ export function AnalysingOverlay({ photo, phase = "analyse" }: { photo?: File; p
   const stages =
     phase === "identify"
       ? [t("identifyingCrop")]
-      : [t("checkingField"), t("analysing"), t("observed"), t("triage"), t("nextSteps")];
+      : [
+          t("checkingField"),
+          t("analysing"),
+          t("observed"),
+          t("triage"),
+          t("checkingGuidance"),
+          t("crossChecking"),
+          t("nextSteps"),
+        ];
   const [stage, setStage] = useState(0);
+  // The full analysis (with the evidence review) takes up to a minute; pace the stages to match.
+  const stageMs = phase === "identify" ? 1600 : 3200;
 
   useEffect(() => {
-    const id = window.setInterval(() => setStage((s) => Math.min(s + 1, stages.length - 1)), 1600);
+    const id = window.setInterval(() => setStage((s) => Math.min(s + 1, stages.length - 1)), stageMs);
     return () => window.clearInterval(id);
-  }, [stages.length]);
+  }, [stages.length, stageMs]);
 
   return (
     <motion.div
@@ -60,7 +70,9 @@ export function AnalysingOverlay({ photo, phase = "analyse" }: { photo?: File; p
             {stages[stage]}…
           </motion.p>
         </AnimatePresence>
-        <p className="text-sm text-mint-200/60">{t("analysing")}…</p>
+        <p className="text-sm text-mint-200/60">
+          {phase === "identify" ? `${t("analysing")}…` : t("analysisTakesTime")}
+        </p>
       </div>
     </motion.div>
   );

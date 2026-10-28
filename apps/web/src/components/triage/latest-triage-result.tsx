@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useLatestTriage } from "@/hooks/use-latest-triage";
 import { translateTriage } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n";
-import { readTranslation, saveTranslation } from "@/lib/triage-storage";
+import { readTranslation, saveTranslation, triageRevision } from "@/lib/triage-storage";
 import { cn } from "@/lib/utils";
 import type { TriageResponse } from "@/types/triage";
 
@@ -23,7 +23,7 @@ function useTranslatedTriage(result: TriageResponse | null) {
   const [translations, setTranslations] = useState<Partial<Record<string, TriageResponse>>>({});
   const [failedKey, setFailedKey] = useState<string | null>(null);
 
-  const key = result ? `${result.report_id}:${language}` : null;
+  const key = result ? `${result.report_id}:${triageRevision(result)}:${language}` : null;
   const needsTranslation = Boolean(
     result && result.analysis_mode === "ai" && (result.response_language ?? "en") !== language,
   );

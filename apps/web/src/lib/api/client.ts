@@ -1,5 +1,5 @@
 import type { ReportFormValues } from "@/lib/schemas/report";
-import type { ApiErrorBody, CropIdentification, TriageResponse } from "@/types/triage";
+import type { ApiErrorBody, CropIdentification, FollowUpAnswer, TriageResponse } from "@/types/triage";
 import type { LocationOption } from "@/types/location";
 import type { Language } from "@/lib/i18n";
 import { fileExtension } from "@/lib/voice/audio";
@@ -8,7 +8,8 @@ export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "");
 
-const REQUEST_TIMEOUT_MS = 60_000;
+// Covers the first-stage triage plus the guidance search and NVIDIA evidence review.
+const REQUEST_TIMEOUT_MS = 120_000;
 
 export type ApiErrorKind = "network" | "timeout" | "validation" | "server";
 
@@ -88,6 +89,34 @@ export async function submitTriageReport(
     );
   }
 
+  return body as TriageResponse;
+}
+
+const FOLLOW_UP_TIMEOUT_MS = 90_000;
+
+/** Send the farmer's answer to the review's question; resolves to the updated result. */
+export async function answerFollowUp(
+  reportId: string,
+  questionId: string,
+  answer: FollowUpAnswer,
+): Promise<TriageResponse> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/v1/triage/follow-up`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ report_id: reportId, question_id: questionId, answer }),
+      signal: AbortSignal.timeout(FOLLOW_UP_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const timedOut = error instanceof DOMException && error.name === "TimeoutError";
+    throw new ApiError(timedOut ? "timeout" : "network", "The review could not be updated.");
+  }
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok || typeof body !== "object" || body === null || !("report_id" in body)) {
+    const message = isApiErrorBody(body) ? body.error.message : "The review could not be updated.";
+    throw new ApiError(response.status >= 500 ? "server" : "validation", message, [], response.status);
+  }
   return body as TriageResponse;
 }
 

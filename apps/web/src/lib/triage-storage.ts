@@ -10,6 +10,25 @@ export function saveLatestTriage(result: TriageResponse): void {
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
+/** Store an updated version of the same report; cached translations no longer match it. */
+export function replaceLatestTriage(result: TriageResponse): void {
+  try {
+    const prefix = `${TRANSLATION_PREFIX}${result.report_id}:`;
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith(prefix)) sessionStorage.removeItem(key);
+    }
+  } catch {
+    // Blocked storage only means no stale translations to clear.
+  }
+  saveLatestTriage(result);
+}
+
+/** Changes whenever a report's content changes after it was first stored. */
+export function triageRevision(result: TriageResponse): string {
+  const review = result.investigation_review;
+  return `${review?.round ?? 0}${review?.follow_up_question?.answer ?? ""}`;
+}
+
 export function readTranslation(reportId: string, language: string): TriageResponse | null {
   try {
     return parseStoredTriage(sessionStorage.getItem(`${TRANSLATION_PREFIX}${reportId}:${language}`));

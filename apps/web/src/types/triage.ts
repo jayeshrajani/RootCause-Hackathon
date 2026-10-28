@@ -38,7 +38,8 @@ export type SourceKind =
   | "satellite"
   | "knowledge_base"
   | "analysis_engine"
-  | "reference_photos";
+  | "reference_photos"
+  | "investigation_review";
 export type EvidenceAvailability = "available" | "unavailable" | "not_integrated";
 export type DataSourceStatus =
   | "used"
@@ -208,6 +209,137 @@ export interface TriageResponse {
   generated_at: string;
   data_sources: DataSource[];
   disclaimer: string;
+  /** NVIDIA Nemotron review of the evidence ledger. Absent on older results. */
+  investigation_review?: InvestigationReview | null;
+  /** Validated pages from approved agricultural publishers (Tavily search). */
+  agronomy_sources?: AgronomySource[];
+  /** What each provider actually did for this report. */
+  integration_status?: IntegrationStep[];
+}
+
+export type IntegrationStepName =
+  | "image_analysis"
+  | "weather"
+  | "satellite"
+  | "reference_photos"
+  | "deterministic_scoring"
+  | "agronomy_research"
+  | "nemotron_review"
+  | "translation";
+export type IntegrationStatus =
+  | "success"
+  | "no_results"
+  | "unavailable"
+  | "failed"
+  | "timeout"
+  | "skipped"
+  | "not_requested"
+  | "not_configured"
+  | "disabled";
+
+export interface UsageInfo {
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  credits: number | null;
+}
+
+export interface IntegrationStep {
+  step: IntegrationStepName;
+  provider: string;
+  model: string | null;
+  status: IntegrationStatus;
+  duration_ms: number | null;
+  detail: string | null;
+  usage: UsageInfo | null;
+}
+
+/** A validated page from an approved publisher. Retrieval alone does not verify its advice. */
+export interface AgronomySource {
+  id: string;
+  title: string;
+  url: string;
+  publisher: string;
+  domain: string;
+  region: string;
+  retrieved_at: string;
+  published_at: string | null;
+  excerpt: string;
+  crop_relevance: boolean;
+  condition_relevance: boolean;
+  condition_keys: string[];
+  validation_status: "validated";
+}
+
+export type ReviewStatus = "completed" | "unavailable" | "not_configured" | "disabled" | "skipped";
+export type EvidenceConsistency = "consistent" | "mixed" | "inconsistent" | "insufficient";
+export type SupportStatus = "source_backed" | "unverified" | "model_suggestion" | "safety_referral";
+export type FollowUpAnswer = "yes" | "no" | "not_sure";
+export type FollowUpCategory =
+  | "symptom_distribution"
+  | "visible_pattern"
+  | "duration"
+  | "field_conditions"
+  | "plant_part";
+
+export interface ReviewedObservation {
+  text: string;
+  evidence_ids: string[];
+  condition_key: string | null;
+}
+
+export interface KnowledgeFinding {
+  claim: string;
+  source_ids: string[];
+  applicability: string;
+  support_status: SupportStatus;
+  verified: boolean;
+}
+
+export interface SafeNextStep {
+  action: string;
+  rationale: string;
+  priority: ActionPriority;
+  source_ids: string[];
+  requires_expert_review: boolean;
+  support_status: SupportStatus;
+}
+
+export interface FollowUpQuestion {
+  id: string;
+  text: string;
+  category: FollowUpCategory;
+  discriminates: string[];
+  why: string;
+  options: FollowUpAnswer[];
+  answer: FollowUpAnswer | null;
+}
+
+/** Second-stage review. It never changes scores, ranking or urgency. */
+export interface InvestigationReview {
+  status: ReviewStatus;
+  provider: string;
+  model: string;
+  detail: string | null;
+  generated_at: string | null;
+  duration_ms: number | null;
+  usage: UsageInfo | null;
+  language: string;
+  round: number;
+  grounding: "sources_and_evidence" | "internal_evidence_only" | null;
+  leading_condition_key: string | null;
+  reasoning_summary: string;
+  evidence_consistent: EvidenceConsistency | null;
+  supporting_observations: ReviewedObservation[];
+  contradictions: ReviewedObservation[];
+  unresolved_questions: string[];
+  follow_up_question: FollowUpQuestion | null;
+  knowledge_findings: KnowledgeFinding[];
+  safe_next_steps: SafeNextStep[];
+  limitations: string[];
+  source_ids: string[];
+  guardrail_notes: string[];
+  previous_summary: string | null;
+  what_changed: string[];
 }
 
 export interface ApiErrorBody {

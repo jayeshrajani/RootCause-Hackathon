@@ -1,10 +1,25 @@
-import { Camera, CloudSun, Cpu, FileText, Images, Library, Satellite, type LucideIcon } from "lucide-react";
+import {
+  Camera,
+  CloudSun,
+  Cpu,
+  FileText,
+  Images,
+  Languages,
+  Library,
+  Satellite,
+  Scale,
+  ScanSearch,
+  type LucideIcon,
+} from "lucide-react";
 
+import type { TranslationKey } from "@/lib/i18n";
 import type {
   ActionPriority,
   ConfidenceLevel,
   DataSourceStatus,
   EvidenceAvailability,
+  IntegrationStatus,
+  IntegrationStepName,
   SourceKind,
   UrgencyLevel,
 } from "@/types/triage";
@@ -45,7 +60,52 @@ export const SOURCE_DISPLAY: Record<SourceKind, { label: string; icon: LucideIco
   knowledge_base: { label: "Agricultural guidance", icon: Library },
   analysis_engine: { label: "Analysis engine", icon: Cpu },
   reference_photos: { label: "Reference photos", icon: Images },
+  investigation_review: { label: "Evidence review", icon: ScanSearch },
 };
+
+export const SOURCE_LABEL_KEYS: Record<SourceKind, TranslationKey> = {
+  farmer_report: "sourceYourReport",
+  photo: "sourcePhotos",
+  weather: "sourceWeather",
+  satellite: "sourceSatellite",
+  knowledge_base: "sourceGuidance",
+  analysis_engine: "sourceEngine",
+  reference_photos: "sourceReferences",
+  investigation_review: "sourceReview",
+};
+
+export const STEP_DISPLAY: Record<IntegrationStepName, { key: TranslationKey; icon: LucideIcon }> = {
+  image_analysis: { key: "stepImage", icon: Camera },
+  weather: { key: "stepWeather", icon: CloudSun },
+  satellite: { key: "stepSatellite", icon: Satellite },
+  reference_photos: { key: "stepReferences", icon: Images },
+  deterministic_scoring: { key: "stepScoring", icon: Scale },
+  agronomy_research: { key: "stepResearch", icon: Library },
+  nemotron_review: { key: "stepReview", icon: ScanSearch },
+  translation: { key: "stepTranslation", icon: Languages },
+};
+
+export const STEP_STATUS_DISPLAY: Record<IntegrationStatus, { key: TranslationKey; dot: string }> = {
+  success: { key: "statusSuccess", dot: "bg-forest-600" },
+  no_results: { key: "statusNoResults", dot: "bg-clay-400" },
+  unavailable: { key: "statusUnavailable", dot: "bg-destructive" },
+  failed: { key: "statusFailed", dot: "bg-destructive" },
+  timeout: { key: "statusTimeout", dot: "bg-destructive" },
+  skipped: { key: "statusSkipped", dot: "bg-forest-900/20" },
+  not_requested: { key: "statusNotRequested", dot: "bg-forest-900/20" },
+  not_configured: { key: "statusNotConfigured", dot: "bg-forest-900/20" },
+  disabled: { key: "statusDisabled", dot: "bg-forest-900/20" },
+};
+
+/** External links only for HTTPS URLs (the API already validates them; this is defence in depth). */
+export function safeHref(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && !parsed.username && !parsed.password ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
 
 export const AVAILABILITY_DISPLAY: Record<EvidenceAvailability, { label: string; className: string }> = {
   available: { label: "Observed", className: "bg-forest-900 text-mint-100" },
