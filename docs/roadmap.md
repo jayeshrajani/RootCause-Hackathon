@@ -114,7 +114,7 @@ Timeline and verification guide: [nebius-hackathon-2026.md](nebius-hackathon-202
 | Deterministic guardrails (ids, citations, chemicals, certainty, expert flag) | Built, unit-tested |
 | Review, Sources and provenance UI; follow-up question | Built, component-tested |
 | Per-client rate limit and daily review cap | Built, unit-tested |
-| Cloud Run deployment (Cloud Build, Secret Manager) | Config written; not deployed yet |
+| Cloud Run deployment (Cloud Build, Secret Manager) | Deployed and live-verified (28 October 2026) |
 
 Acceptance criteria
 
@@ -122,4 +122,5 @@ Acceptance criteria
   through the API on 28 October 2026).
 - [x] Scores, ranking and urgency are identical with and without the review (tested).
 - [x] Invented citations and chemical instructions never reach the farmer (tested).
-- [ ] Public demo URL and a video under 3 minutes.
+- [x] Public demo URL (Cloud Run, live-verified 28 October 2026).
+- [ ] Video under 3 minutes.

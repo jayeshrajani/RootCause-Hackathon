@@ -52,8 +52,9 @@ cannot change its scores, ranking or urgency.
 
 ## Status: implemented, tested, live-verified
 
-Live checks ran on 28 October 2026 against the real Nebius Token Factory and Tavily APIs, from a
-local run of the app (timings are single runs, not benchmarks).
+Live checks ran on 28 October 2026 against the real Nebius Token Factory and Tavily APIs, first
+from a local run of the app, then on the Cloud Run deployment (timings are single runs, not
+benchmarks).
 
 | Capability | Implemented | Automated tests | Live-verified |
 | --- | --- | --- | --- |
@@ -63,7 +64,7 @@ local run of the app (timings are single runs, not benchmarks).
 | Orchestration, strict mode, trace, budget | Yes | Yes | **Yes**: a full report (tomato sample, Pune, Hindi) returned a completed review grounded in 4 sources and translated into Hindi, with the full provider trace |
 | Follow-up question | Yes | Yes (API and UI) | **Yes**: answer recorded, round 2 review from Nemotron 3 Super, scores unchanged, a second answer refused (409) |
 | Results UI | Yes | Component tests, typecheck, lint, build | Pending manual check with live data |
-| Cloud Run deployment | Config written | n/a | **Not deployed yet** |
+| Cloud Run deployment | Yes | n/a | **Yes**: web and API on Cloud Run (`asia-south1`), keys in Secret Manager; a tomato report on the hosted API completed in 46 s with a Nemotron 3 Ultra review and 4 Tavily sources; CORS allows only the web origin |
 
 Experimental parts: the lexical "source-backed" check (necessary, not sufficient), allowlist
 coverage outside India and the USA, and translation of the review into Hindi and Punjabi (done by
@@ -71,16 +72,18 @@ the analysis model, not by Nemotron).
 
 ## How judges can verify the integrations
 
-1. Open the demo and submit a crop photo, or tap a built-in sample (tomato or potato works best),
-   with a place name for weather and, if possible, GPS for satellite evidence.
+1. Open the [demo](https://rootcause-web-980426741953.asia-south1.run.app) and submit a crop
+   photo, or tap a built-in sample (tomato or potato works best), with a place name for weather.
+   The hosted demo runs without satellite evidence and reference photos.
 2. On the result, open **How this result was checked**. The *Evidence review* row shows the
    provider `Nebius Token Factory`, the model (`nvidia/Nemotron-3-Ultra-550b-a55b`, or
    `nvidia/nemotron-3-super-120b-a12b` after a follow-up answer or a fallback), its real status
    and duration. *Guidance search* shows Tavily's status and the number of validated sources.
 3. Open the **Review** tab (Nemotron's structured review) and the **Sources** tab (validated
    pages with links to the original publisher).
-4. `GET <api-url>/api/v1/health` shows `investigation_review: "configured"`,
-   `investigation_strict: true` and, after a report, `investigation_last_success_at`.
+4. `GET https://rootcause-api-980426741953.asia-south1.run.app/api/v1/health` shows
+   `investigation_review: "configured"`, `investigation_strict: true` and, after a report,
+   `investigation_last_success_at`.
 5. In code: start at `apps/api/app/services/investigation/orchestrator.py`. Run
    `pytest tests/test_investigation.py tests/test_guardrails.py` for behaviour without keys.
 

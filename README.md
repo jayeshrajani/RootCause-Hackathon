@@ -202,7 +202,8 @@ Two Cloud Run services built by Cloud Build, with keys in Secret Manager and str
 ## Live demo
 
 - Track: Best Apps and Agents (plus Best Use of Tavily)
-- Demo: _URL to be added after deployment_
+- Demo: https://rootcause-web-980426741953.asia-south1.run.app (Cloud Run, `asia-south1`). The
+  hosted demo runs without the optional satellite and reference-photo steps.
 - Video (under 3 minutes): _to be added_; script in [docs/hackathon-demo-script.md](docs/hackathon-demo-script.md)
 
 ## Documentation
